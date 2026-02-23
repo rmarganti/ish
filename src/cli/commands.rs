@@ -1,0 +1,216 @@
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+use crate::domain::{Issue, Status};
+use crate::storage::{IssueRepository, SqliteRepository};
+
+#[derive(Parser)]
+#[command(name = "ish")]
+#[command(about = "A simple terminal-based issue tracker", long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+
+    #[arg(short, long, global = true)]
+    pub db_path: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    Add {
+        title: String,
+
+        #[arg(short, long)]
+        body: Option<String>,
+
+        #[arg(short, long)]
+        parent: Option<String>,
+    },
+    List {
+        #[arg(short, long)]
+        status: Option<String>,
+
+        #[arg(short, long)]
+        parent: Option<String>,
+    },
+    Next,
+    Start {
+        id: String,
+    },
+    Finish {
+        id: String,
+    },
+    Edit {
+        id: String,
+
+        #[arg(short, long)]
+        title: Option<String>,
+
+        #[arg(short, long)]
+        body: Option<String>,
+
+        #[arg(short, long)]
+        sort: Option<i32>,
+    },
+    Delete {
+        id: String,
+    },
+    Show {
+        id: String,
+    },
+}
+
+fn get_db_path(cli_db_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = cli_db_path {
+        return path;
+    }
+
+    PathBuf::from(".local/ish.db")
+}
+
+pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = get_db_path(cli.db_path);
+    let repo = SqliteRepository::new(db_path)?;
+
+    match cli.command {
+        Commands::Add {
+            title,
+            body,
+            parent,
+        } => cmd_add(&repo, title, body, parent),
+        Commands::List { status, parent } => cmd_list(&repo, status, parent),
+        Commands::Next => cmd_next(&repo),
+        Commands::Start { id } => cmd_start(&repo, &id),
+        Commands::Finish { id } => cmd_finish(&repo, &id),
+        Commands::Edit {
+            id,
+            title,
+            body,
+            sort,
+        } => cmd_edit(&repo, &id, title, body, sort),
+        Commands::Delete { id } => cmd_delete(&repo, &id),
+        Commands::Show { id } => cmd_show(&repo, &id),
+    }
+}
+
+fn cmd_add(
+    repo: &SqliteRepository,
+    title: String,
+    body: Option<String>,
+    parent: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let issue = Issue::new(title, body, parent);
+    repo.create(&issue)?;
+    println!("Created issue: {}", issue.id);
+    Ok(())
+}
+
+fn cmd_list(
+    repo: &SqliteRepository,
+    status: Option<String>,
+    parent: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let issues = match (status, parent) {
+        (Some(s), _) => {
+            let st = s.parse::<Status>()?;
+            repo.get_by_status(st)?
+        }
+        (_, Some(p)) => repo.get_by_parent(Some(&p))?,
+        (_, _) => repo.get_all()?,
+    };
+
+    if issues.is_empty() {
+        println!("No issues found.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<10} {:<30} {:<15} {:<6}",
+        "ID", "Title", "Status", "Sort"
+    );
+    println!("{}", "-".repeat(70));
+    for issue in issues {
+        println!(
+            "{:<10} {:<30} {:<15} {:<6}",
+            issue.id,
+            &issue.title[..issue.title.len().min(30)],
+            issue.status,
+            issue.sort
+        );
+    }
+    Ok(())
+}
+
+fn cmd_next(repo: &SqliteRepository) -> Result<(), Box<dyn std::error::Error>> {
+    let issue = repo.get_next_todo()?;
+    match issue {
+        Some(i) => {
+            println!("{}", i.id);
+            Ok(())
+        }
+        None => Err("No todo issues found".into()),
+    }
+}
+
+fn cmd_start(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut issue = repo.get_by_id(id)?;
+    issue.start()?;
+    repo.update(&issue)?;
+    println!("Started issue: {}", id);
+    Ok(())
+}
+
+fn cmd_finish(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut issue = repo.get_by_id(id)?;
+    issue.finish()?;
+    repo.update(&issue)?;
+    println!("Finished issue: {}", id);
+    Ok(())
+}
+
+fn cmd_edit(
+    repo: &SqliteRepository,
+    id: &str,
+    title: Option<String>,
+    body: Option<String>,
+    sort: Option<i32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut issue = repo.get_by_id(id)?;
+
+    if let Some(t) = title {
+        issue.update_title(t);
+    }
+    if body.is_some() || body == Some(String::new()) {
+        issue.update_body(body);
+    }
+    if let Some(s) = sort {
+        issue.update_sort(s);
+    }
+
+    repo.update(&issue)?;
+    println!("Updated issue: {}", id);
+    Ok(())
+}
+
+fn cmd_delete(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    repo.delete(id)?;
+    println!("Deleted issue: {}", id);
+    Ok(())
+}
+
+fn cmd_show(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let issue = repo.get_by_id(id)?;
+    println!("ID:       {}", issue.id);
+    println!("Title:    {}", issue.title);
+    println!("Status:   {}", issue.status);
+    println!("Sort:     {}", issue.sort);
+    if let Some(body) = issue.body {
+        println!("Body:     {}", body);
+    }
+    if let Some(parent) = issue.parent_id {
+        println!("Parent:   {}", parent);
+    }
+    println!("Created:  {}", issue.created_at.format("%Y-%m-%d %H:%M:%S"));
+    println!("Updated:  {}", issue.updated_at.format("%Y-%m-%d %H:%M:%S"));
+    Ok(())
+}
