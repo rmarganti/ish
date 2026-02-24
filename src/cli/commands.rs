@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::domain::{Issue, ListIssue, Status};
-use crate::storage::{IssueRepository, SqliteRepository};
+use crate::storage::{IssueRepository, JSONLRepository};
 
 #[derive(Parser)]
 #[command(name = "ish")]
@@ -65,12 +65,12 @@ fn get_db_path(cli_db_path: Option<PathBuf>) -> PathBuf {
         return path;
     }
 
-    PathBuf::from(".local/ish.db")
+    PathBuf::from(".local/issues.jsonl")
 }
 
 pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let db_path = get_db_path(cli.db_path);
-    let repo = SqliteRepository::new(db_path)?;
+    let repo = JSONLRepository::new(db_path)?;
 
     match cli.command {
         Commands::Add {
@@ -94,7 +94,7 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn cmd_add(
-    repo: &SqliteRepository,
+    repo: &dyn IssueRepository,
     title: String,
     body: Option<String>,
     parent: Option<String>,
@@ -106,7 +106,7 @@ fn cmd_add(
 }
 
 fn cmd_list(
-    repo: &SqliteRepository,
+    repo: &dyn IssueRepository,
     status: Option<String>,
     parent: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -124,7 +124,7 @@ fn cmd_list(
     Ok(())
 }
 
-fn cmd_next(repo: &SqliteRepository) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_next(repo: &dyn IssueRepository) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_next_todo()?;
     match issue {
         Some(i) => {
@@ -135,7 +135,7 @@ fn cmd_next(repo: &SqliteRepository) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn cmd_start(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_start(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut issue = repo.get_by_id(id)?;
     issue.start()?;
     repo.update(&issue)?;
@@ -143,7 +143,7 @@ fn cmd_start(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn cmd_finish(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_finish(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut issue = repo.get_by_id(id)?;
     issue.finish()?;
     repo.update(&issue)?;
@@ -152,7 +152,7 @@ fn cmd_finish(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::erro
 }
 
 fn cmd_edit(
-    repo: &SqliteRepository,
+    repo: &dyn IssueRepository,
     id: &str,
     title: Option<String>,
     body: Option<String>,
@@ -175,14 +175,14 @@ fn cmd_edit(
     Ok(())
 }
 
-fn cmd_delete(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_delete(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_by_id(id)?;
     println!("{}", serde_json::to_string_pretty(&issue)?);
     repo.delete(id)?;
     Ok(())
 }
 
-fn cmd_show(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_show(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_by_id(id)?;
     println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())

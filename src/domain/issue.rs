@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{DomainError, Status};
 
+// ----------------------------------------------------------------
+// Issue
+// ----------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Issue {
     pub id: String,
@@ -13,31 +17,6 @@ pub struct Issue {
     pub parent_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListIssue {
-    pub id: String,
-    pub title: String,
-    pub status: Status,
-    pub sort: i32,
-    pub parent_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-impl From<Issue> for ListIssue {
-    fn from(issue: Issue) -> Self {
-        ListIssue {
-            id: issue.id,
-            title: issue.title,
-            status: issue.status,
-            sort: issue.sort,
-            parent_id: issue.parent_id,
-            created_at: issue.created_at,
-            updated_at: issue.updated_at,
-        }
-    }
 }
 
 impl Issue {
@@ -86,6 +65,35 @@ impl Issue {
     pub fn update_sort(&mut self, sort: i32) {
         self.sort = sort;
         self.updated_at = Utc::now();
+    }
+}
+
+// ----------------------------------------------------------------
+// ListIssue
+// ----------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListIssue {
+    pub id: String,
+    pub title: String,
+    pub status: Status,
+    pub sort: i32,
+    pub parent_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<Issue> for ListIssue {
+    fn from(issue: Issue) -> Self {
+        ListIssue {
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            sort: issue.sort,
+            parent_id: issue.parent_id,
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+        }
     }
 }
 
