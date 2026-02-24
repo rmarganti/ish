@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::domain::{Issue, Status};
+use crate::domain::{Issue, ListIssue, Status};
 use crate::storage::{IssueRepository, SqliteRepository};
 
 #[derive(Parser)]
@@ -101,7 +101,7 @@ fn cmd_add(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let issue = Issue::new(title, body, parent);
     repo.create(&issue)?;
-    println!("Created issue: {}", issue.id);
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
 }
 
@@ -119,25 +119,8 @@ fn cmd_list(
         (_, _) => repo.get_all()?,
     };
 
-    if issues.is_empty() {
-        println!("No issues found.");
-        return Ok(());
-    }
-
-    println!(
-        "{:<10} {:<30} {:<15} {:<6}",
-        "ID", "Title", "Status", "Sort"
-    );
-    println!("{}", "-".repeat(70));
-    for issue in issues {
-        println!(
-            "{:<10} {:<30} {:<15} {:<6}",
-            issue.id,
-            &issue.title[..issue.title.len().min(30)],
-            issue.status,
-            issue.sort
-        );
-    }
+    let list_issues: Vec<ListIssue> = issues.into_iter().map(ListIssue::from).collect();
+    println!("{}", serde_json::to_string_pretty(&list_issues)?);
     Ok(())
 }
 
@@ -145,7 +128,7 @@ fn cmd_next(repo: &SqliteRepository) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_next_todo()?;
     match issue {
         Some(i) => {
-            println!("{}", i.id);
+            println!("{}", serde_json::to_string_pretty(&vec![i])?);
             Ok(())
         }
         None => Err("No todo issues found".into()),
@@ -156,7 +139,7 @@ fn cmd_start(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error
     let mut issue = repo.get_by_id(id)?;
     issue.start()?;
     repo.update(&issue)?;
-    println!("Started issue: {}", id);
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
 }
 
@@ -164,7 +147,7 @@ fn cmd_finish(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::erro
     let mut issue = repo.get_by_id(id)?;
     issue.finish()?;
     repo.update(&issue)?;
-    println!("Finished issue: {}", id);
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
 }
 
@@ -188,29 +171,19 @@ fn cmd_edit(
     }
 
     repo.update(&issue)?;
-    println!("Updated issue: {}", id);
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
 }
 
 fn cmd_delete(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let issue = repo.get_by_id(id)?;
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     repo.delete(id)?;
-    println!("Deleted issue: {}", id);
     Ok(())
 }
 
 fn cmd_show(repo: &SqliteRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_by_id(id)?;
-    println!("ID:       {}", issue.id);
-    println!("Title:    {}", issue.title);
-    println!("Status:   {}", issue.status);
-    println!("Sort:     {}", issue.sort);
-    if let Some(body) = issue.body {
-        println!("Body:     {}", body);
-    }
-    if let Some(parent) = issue.parent_id {
-        println!("Parent:   {}", parent);
-    }
-    println!("Created:  {}", issue.created_at.format("%Y-%m-%d %H:%M:%S"));
-    println!("Updated:  {}", issue.updated_at.format("%Y-%m-%d %H:%M:%S"));
+    println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
 }

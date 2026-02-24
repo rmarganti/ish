@@ -15,6 +15,31 @@ pub struct Issue {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListIssue {
+    pub id: String,
+    pub title: String,
+    pub status: Status,
+    pub sort: i32,
+    pub parent_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<Issue> for ListIssue {
+    fn from(issue: Issue) -> Self {
+        ListIssue {
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            sort: issue.sort,
+            parent_id: issue.parent_id,
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+        }
+    }
+}
+
 impl Issue {
     pub fn new(title: String, body: Option<String>, parent_id: Option<String>) -> Self {
         let now = Utc::now();
