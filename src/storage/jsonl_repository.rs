@@ -91,7 +91,7 @@ impl JSONLRepository {
         Ok(())
     }
 
-    fn sort_issues(issues: &mut Vec<Issue>) {
+    fn sort_issues(issues: &mut [Issue]) {
         issues.sort_by(|a, b| a.id.cmp(&b.id));
     }
 }
