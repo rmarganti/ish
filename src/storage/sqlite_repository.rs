@@ -5,8 +5,8 @@ use std::str::FromStr;
 use std::sync::Mutex;
 
 use crate::domain::{Issue, Status};
-use crate::storage::IssueRepository;
 use crate::storage::error::StorageError;
+use crate::storage::IssueRepository;
 
 pub struct SqliteRepository {
     conn: Mutex<Connection>,
