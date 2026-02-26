@@ -24,6 +24,9 @@ pub enum Commands {
         body: Option<String>,
 
         #[arg(short, long)]
+        context: Option<String>,
+
+        #[arg(short, long)]
         parent: Option<String>,
     },
     List {
@@ -48,6 +51,9 @@ pub enum Commands {
 
         #[arg(short, long)]
         body: Option<String>,
+
+        #[arg(short, long)]
+        context: Option<String>,
 
         #[arg(short, long)]
         sort: Option<i32>,
@@ -76,8 +82,9 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Add {
             title,
             body,
+            context,
             parent,
-        } => cmd_add(&repo, title, body, parent),
+        } => cmd_add(&repo, title, body, context, parent),
         Commands::List { status, parent } => cmd_list(&repo, status, parent),
         Commands::Next => cmd_next(&repo),
         Commands::Start { id } => cmd_start(&repo, &id),
@@ -86,8 +93,9 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             id,
             title,
             body,
+            context,
             sort,
-        } => cmd_edit(&repo, &id, title, body, sort),
+        } => cmd_edit(&repo, &id, title, body, context, sort),
         Commands::Delete { id } => cmd_delete(&repo, &id),
         Commands::Show { id } => cmd_show(&repo, &id),
     }
@@ -97,9 +105,10 @@ fn cmd_add(
     repo: &dyn IssueRepository,
     title: String,
     body: Option<String>,
+    context: Option<String>,
     parent: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let issue = Issue::new(title, body, parent);
+    let issue = Issue::new(title, body, context, parent);
     repo.create(&issue)?;
     println!("{}", serde_json::to_string_pretty(&issue)?);
     Ok(())
@@ -156,6 +165,7 @@ fn cmd_edit(
     id: &str,
     title: Option<String>,
     body: Option<String>,
+    context: Option<String>,
     sort: Option<i32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut issue = repo.get_by_id(id)?;
@@ -165,6 +175,9 @@ fn cmd_edit(
     }
     if body.is_some() || body == Some(String::new()) {
         issue.update_body(body);
+    }
+    if context.is_some() || context == Some(String::new()) {
+        issue.update_context(context);
     }
     if let Some(s) = sort {
         issue.update_sort(s);

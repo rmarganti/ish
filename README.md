@@ -21,6 +21,7 @@ ish [OPTIONS] <COMMAND>
 **Add a new issue**
 ```bash
 ish add "Fix bug" --body "Description here"
+ish add "Fix bug" --body "Description" --context "Reference: file.txt, domain logic: ..."
 ish add "Subtask" --parent <parent-id>
 ```
 
@@ -42,6 +43,7 @@ ish finish <id>             # mark issue as done
 ```bash
 ish edit <id> --title "New title"
 ish edit <id> --body "New body"
+ish edit <id> --context "Updated context"
 ish edit <id> --sort 1      # set sort order
 ```
 
@@ -53,12 +55,13 @@ ish delete <id>             # delete issue
 
 ### Options
 
-- `--db-path <PATH>` - Custom database path (default: `.local/ish.db`)
+- `--db-path <PATH>` - Custom database path (default: `.local/issues.jsonl`)
 
 ## Features
 
-- SQLite storage
+- JSONL storage
 - Issue status tracking: todo, in_progress, done
 - Parent-child issue relationships
 - Sort ordering for prioritization
+- Issue context field for storing reference material and notes
 - Smart "next" command that skips blocked issues (issues with incomplete children)

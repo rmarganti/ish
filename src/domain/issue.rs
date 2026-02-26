@@ -12,6 +12,7 @@ pub struct Issue {
     pub id: String,
     pub title: String,
     pub body: Option<String>,
+    pub context: Option<String>,
     pub status: Status,
     pub sort: i32,
     pub parent_id: Option<String>,
@@ -20,13 +21,19 @@ pub struct Issue {
 }
 
 impl Issue {
-    pub fn new(title: String, body: Option<String>, parent_id: Option<String>) -> Self {
+    pub fn new(
+        title: String,
+        body: Option<String>,
+        context: Option<String>,
+        parent_id: Option<String>,
+    ) -> Self {
         let now = Utc::now();
         let id = generate_id();
         Self {
             id,
             title,
             body,
+            context,
             status: Status::Todo,
             sort: 0,
             parent_id,
@@ -59,6 +66,11 @@ impl Issue {
 
     pub fn update_body(&mut self, body: Option<String>) {
         self.body = body;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn update_context(&mut self, context: Option<String>) {
+        self.context = context;
         self.updated_at = Utc::now();
     }
 
@@ -113,38 +125,70 @@ mod tests {
         let issue = Issue::new(
             "Test issue".to_string(),
             Some("Test body".to_string()),
+            Some("Test context".to_string()),
             None,
         );
         assert_eq!(issue.title, "Test issue");
         assert_eq!(issue.body, Some("Test body".to_string()));
+        assert_eq!(issue.context, Some("Test context".to_string()));
         assert_eq!(issue.status, Status::Todo);
         assert!(issue.parent_id.is_none());
     }
 
     #[test]
+    fn test_create_issue_without_context() {
+        let issue = Issue::new(
+            "Test issue".to_string(),
+            Some("Test body".to_string()),
+            None,
+            None,
+        );
+        assert_eq!(issue.context, None);
+    }
+
+    #[test]
+    fn test_update_context() {
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
+        issue.update_context(Some("New context".to_string()));
+        assert_eq!(issue.context, Some("New context".to_string()));
+    }
+
+    #[test]
     fn test_start_issue() {
-        let mut issue = Issue::new("Test".to_string(), None, None);
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
         issue.start().unwrap();
         assert_eq!(issue.status, Status::InProgress);
     }
 
     #[test]
     fn test_finish_issue() {
-        let mut issue = Issue::new("Test".to_string(), None, None);
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
         issue.finish().unwrap();
         assert_eq!(issue.status, Status::Done);
     }
 
     #[test]
     fn test_cannot_start_finished_issue() {
-        let mut issue = Issue::new("Test".to_string(), None, None);
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
         issue.finish().unwrap();
         assert!(issue.start().is_err());
     }
 
     #[test]
     fn test_id_length() {
-        let issue = Issue::new("Test".to_string(), None, None);
+        let issue = Issue::new("Test".to_string(), None, None, None);
         assert_eq!(issue.id.len(), 8);
+    }
+
+    #[test]
+    fn test_list_issue_excludes_context() {
+        let issue = Issue::new(
+            "Test issue".to_string(),
+            Some("Test body".to_string()),
+            Some("Test context".to_string()),
+            None,
+        );
+        let list_issue = ListIssue::from(issue);
+        assert_eq!(list_issue.title, "Test issue");
     }
 }

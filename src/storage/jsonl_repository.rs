@@ -77,8 +77,7 @@ impl JSONLRepository {
             for issue in issues {
                 let line = serde_json::to_string(issue)
                     .map_err(|e| StorageError::WriteError(e.to_string()))?;
-                writeln!(writer, "{}", line)
-                    .map_err(|e| StorageError::WriteError(e.to_string()))?;
+                writeln!(writer, "{line}").map_err(|e| StorageError::WriteError(e.to_string()))?;
             }
 
             writer
@@ -135,7 +134,7 @@ impl IssueRepository for JSONLRepository {
             .lock()
             .map_err(|e| StorageError::LockError(e.to_string()))?;
 
-        // Return sorted by sort asc, created_at desc (matching SQLite behaviour)
+        // Return sorted by sort asc, created_at desc
         let mut result = issues.clone();
         result.sort_by(|a, b| {
             a.sort
@@ -260,7 +259,7 @@ mod tests {
     #[test]
     fn test_create_and_get_issue() {
         let repo = create_test_repo();
-        let issue = Issue::new("Test".to_string(), Some("Body".to_string()), None);
+        let issue = Issue::new("Test".to_string(), Some("Body".to_string()), None, None);
         repo.create(&issue).unwrap();
 
         let retrieved = repo.get_by_id(&issue.id).unwrap();
@@ -272,8 +271,8 @@ mod tests {
     #[test]
     fn test_get_all_issues() {
         let repo = create_test_repo();
-        let issue1 = Issue::new("First".to_string(), None, None);
-        let issue2 = Issue::new("Second".to_string(), None, None);
+        let issue1 = Issue::new("First".to_string(), None, None, None);
+        let issue2 = Issue::new("Second".to_string(), None, None, None);
         repo.create(&issue1).unwrap();
         repo.create(&issue2).unwrap();
 
@@ -284,7 +283,7 @@ mod tests {
     #[test]
     fn test_get_by_status() {
         let repo = create_test_repo();
-        let mut issue = Issue::new("Test".to_string(), None, None);
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
         repo.create(&issue).unwrap();
 
         let todo_issues = repo.get_by_status(Status::Todo).unwrap();
@@ -303,9 +302,9 @@ mod tests {
     #[test]
     fn test_get_next_todo() {
         let repo = create_test_repo();
-        let mut issue1 = Issue::new("First".to_string(), None, None);
+        let mut issue1 = Issue::new("First".to_string(), None, None, None);
         issue1.sort = 10;
-        let mut issue2 = Issue::new("Second".to_string(), None, None);
+        let mut issue2 = Issue::new("Second".to_string(), None, None, None);
         issue2.sort = 5;
         repo.create(&issue1).unwrap();
         repo.create(&issue2).unwrap();
@@ -318,7 +317,7 @@ mod tests {
     #[test]
     fn test_update_issue() {
         let repo = create_test_repo();
-        let mut issue = Issue::new("Test".to_string(), None, None);
+        let mut issue = Issue::new("Test".to_string(), None, None, None);
         repo.create(&issue).unwrap();
 
         issue.update_title("Updated".to_string());
@@ -331,7 +330,7 @@ mod tests {
     #[test]
     fn test_delete_issue() {
         let repo = create_test_repo();
-        let issue = Issue::new("Test".to_string(), None, None);
+        let issue = Issue::new("Test".to_string(), None, None, None);
         repo.create(&issue).unwrap();
 
         repo.delete(&issue.id).unwrap();
@@ -344,10 +343,10 @@ mod tests {
     fn test_get_next_todo_skips_parent_with_incomplete_children() {
         let repo = create_test_repo();
 
-        let parent = Issue::new("Parent".to_string(), None, None);
+        let parent = Issue::new("Parent".to_string(), None, None, None);
         repo.create(&parent).unwrap();
 
-        let child = Issue::new("Child".to_string(), None, Some(parent.id.clone()));
+        let child = Issue::new("Child".to_string(), None, None, Some(parent.id.clone()));
         repo.create(&child).unwrap();
 
         let next = repo.get_next_todo().unwrap();
@@ -359,10 +358,10 @@ mod tests {
     fn test_get_next_todo_includes_parent_with_done_children() {
         let repo = create_test_repo();
 
-        let parent = Issue::new("Parent".to_string(), None, None);
+        let parent = Issue::new("Parent".to_string(), None, None, None);
         repo.create(&parent).unwrap();
 
-        let mut child = Issue::new("Child".to_string(), None, Some(parent.id.clone()));
+        let mut child = Issue::new("Child".to_string(), None, None, Some(parent.id.clone()));
         repo.create(&child).unwrap();
         child.finish().unwrap();
         repo.update(&child).unwrap();
@@ -376,7 +375,7 @@ mod tests {
     fn test_get_next_todo_includes_parent_without_children() {
         let repo = create_test_repo();
 
-        let parent = Issue::new("Parent".to_string(), None, None);
+        let parent = Issue::new("Parent".to_string(), None, None, None);
         repo.create(&parent).unwrap();
 
         let next = repo.get_next_todo().unwrap();
@@ -387,10 +386,10 @@ mod tests {
     #[test]
     fn test_parent_child_issues() {
         let repo = create_test_repo();
-        let parent = Issue::new("Parent".to_string(), None, None);
+        let parent = Issue::new("Parent".to_string(), None, None, None);
         repo.create(&parent).unwrap();
 
-        let child = Issue::new("Child".to_string(), None, Some(parent.id.clone()));
+        let child = Issue::new("Child".to_string(), None, None, Some(parent.id.clone()));
         repo.create(&child).unwrap();
 
         let children = repo.get_by_parent(Some(&parent.id)).unwrap();
@@ -408,7 +407,7 @@ mod tests {
         assert!(!path.exists());
 
         let repo = JSONLRepository::new(path.clone()).unwrap();
-        let issue = Issue::new("Test".to_string(), None, None);
+        let issue = Issue::new("Test".to_string(), None, None, None);
         repo.create(&issue).unwrap();
 
         assert!(path.exists());
@@ -421,7 +420,7 @@ mod tests {
         let repo = JSONLRepository::new(path.clone()).unwrap();
 
         for i in 0..5 {
-            let issue = Issue::new(format!("Issue {}", i), None, None);
+            let issue = Issue::new(format!("Issue {}", i), None, None, None);
             repo.create(&issue).unwrap();
         }
 
@@ -448,7 +447,7 @@ mod tests {
         let repo = JSONLRepository::new(path.clone()).unwrap();
 
         let issues: Vec<Issue> = (0..5)
-            .map(|i| Issue::new(format!("Issue {}", i), None, None))
+            .map(|i| Issue::new(format!("Issue {}", i), None, None, None))
             .collect();
 
         for issue in &issues {
@@ -481,7 +480,7 @@ mod tests {
 
         {
             let repo = JSONLRepository::new(path.clone()).unwrap();
-            let issue = Issue::new("Persistent".to_string(), None, None);
+            let issue = Issue::new("Persistent".to_string(), None, None, None);
             repo.create(&issue).unwrap();
         }
 
@@ -530,7 +529,7 @@ mod tests {
     #[test]
     fn test_update_not_found() {
         let repo = create_test_repo();
-        let issue = Issue::new("Ghost".to_string(), None, None);
+        let issue = Issue::new("Ghost".to_string(), None, None, None);
         let result = repo.update(&issue);
         assert!(result.is_err());
         match result.unwrap_err() {
