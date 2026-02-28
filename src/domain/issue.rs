@@ -421,12 +421,7 @@ mod tests {
         let parent = Issue::new("Parent".to_string(), None, None, None);
         repo.create(&parent).unwrap();
 
-        let child = Issue::new(
-            "Child".to_string(),
-            None,
-            None,
-            Some(parent.id.clone()),
-        );
+        let child = Issue::new("Child".to_string(), None, None, Some(parent.id.clone()));
         repo.create(&child).unwrap();
 
         let entries = collect_ancestor_context(&child, &repo).unwrap();
@@ -461,12 +456,7 @@ mod tests {
 
     #[test]
     fn test_show_issue_serialization() {
-        let issue = Issue::new(
-            "Test".to_string(),
-            Some("Body".to_string()),
-            None,
-            None,
-        );
+        let issue = Issue::new("Test".to_string(), Some("Body".to_string()), None, None);
         let context = vec![ContextEntry {
             depth: 0,
             issue_id: issue.id.clone(),
