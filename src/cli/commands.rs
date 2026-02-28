@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::domain::{Issue, ListIssue, Status};
+use crate::domain::{collect_ancestor_context, Issue, ListIssue, ShowIssue, Status};
 use crate::storage::{IssueRepository, JSONLRepository};
 
 #[derive(Parser)]
@@ -137,7 +137,9 @@ fn cmd_next(repo: &dyn IssueRepository) -> Result<(), Box<dyn std::error::Error>
     let issue = repo.get_next_todo()?;
     match issue {
         Some(i) => {
-            println!("{}", serde_json::to_string_pretty(&vec![i])?);
+            let context = collect_ancestor_context(&i, repo)?;
+            let show_issue = ShowIssue::from_issue(i, context);
+            println!("{}", serde_json::to_string_pretty(&vec![show_issue])?);
             Ok(())
         }
         None => Err("No todo issues found".into()),
@@ -148,7 +150,9 @@ fn cmd_start(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::er
     let mut issue = repo.get_by_id(id)?;
     issue.start()?;
     repo.update(&issue)?;
-    println!("{}", serde_json::to_string_pretty(&issue)?);
+    let context = collect_ancestor_context(&issue, repo)?;
+    let show_issue = ShowIssue::from_issue(issue, context);
+    println!("{}", serde_json::to_string_pretty(&show_issue)?);
     Ok(())
 }
 
@@ -197,6 +201,8 @@ fn cmd_delete(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::e
 
 fn cmd_show(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let issue = repo.get_by_id(id)?;
-    println!("{}", serde_json::to_string_pretty(&issue)?);
+    let context = collect_ancestor_context(&issue, repo)?;
+    let show_issue = ShowIssue::from_issue(issue, context);
+    println!("{}", serde_json::to_string_pretty(&show_issue)?);
     Ok(())
 }
