@@ -12,4 +12,5 @@ pub trait IssueRepository: Send + Sync {
     fn get_next_todo(&self) -> Result<Option<Issue>, StorageError>;
     fn update(&self, issue: &Issue) -> Result<(), StorageError>;
     fn delete(&self, id: &str) -> Result<(), StorageError>;
+    fn clear_all(&self) -> Result<(), StorageError>;
 }

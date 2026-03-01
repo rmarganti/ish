@@ -64,6 +64,10 @@ pub enum Commands {
     Show {
         id: String,
     },
+    Clear {
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 fn get_db_path(cli_db_path: Option<PathBuf>) -> PathBuf {
@@ -98,6 +102,7 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         } => cmd_edit(&repo, &id, title, body, context, sort),
         Commands::Delete { id } => cmd_delete(&repo, &id),
         Commands::Show { id } => cmd_show(&repo, &id),
+        Commands::Clear { yes } => cmd_clear(&repo, yes),
     }
 }
 
@@ -204,5 +209,20 @@ fn cmd_show(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::err
     let context = collect_ancestor_context(&issue, repo)?;
     let show_issue = ShowIssue::from_issue(issue, context);
     println!("{}", serde_json::to_string_pretty(&show_issue)?);
+    Ok(())
+}
+
+fn cmd_clear(repo: &dyn IssueRepository, yes: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if !yes {
+        print!("Are you sure you want to delete all issues? [y/N] ");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            return Ok(());
+        }
+    }
+    repo.clear_all()?;
+    println!("[]");
     Ok(())
 }

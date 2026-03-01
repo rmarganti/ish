@@ -243,6 +243,17 @@ impl IssueRepository for JSONLRepository {
         self.persist(&issues)?;
         Ok(())
     }
+
+    fn clear_all(&self) -> Result<(), StorageError> {
+        let mut issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError::LockError(e.to_string()))?;
+
+        issues.clear();
+        self.persist(&issues)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

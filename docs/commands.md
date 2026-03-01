@@ -86,3 +86,14 @@ Remove an issue. Outputs the deleted `Issue`, then removes it from storage.
 ```
 ish delete <ID>
 ```
+
+## clear
+
+Remove all issues from the database. Outputs empty array `[]` on success.
+
+```
+ish clear [--yes]
+```
+
+- `--yes` skips the confirmation prompt (useful for scripting).
+- If database is empty or doesn't exist, treats as success.

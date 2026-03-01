@@ -61,6 +61,8 @@ Only provided fields are changed.
 ```bash
 ish show <id>               # show issue details with ancestor context
 ish delete <id>             # delete issue
+ish clear                   # delete all issues (with confirmation)
+ish clear --yes             # delete all issues (skip confirmation)
 ```
 
 ### Options
