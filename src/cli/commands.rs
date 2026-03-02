@@ -60,6 +60,9 @@ pub enum Commands {
     },
     Delete {
         id: String,
+
+        #[arg(short, long)]
+        with_children: bool,
     },
     Show {
         id: String,
@@ -100,7 +103,7 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             context,
             sort,
         } => cmd_edit(&repo, &id, title, body, context, sort),
-        Commands::Delete { id } => cmd_delete(&repo, &id),
+        Commands::Delete { id, with_children } => cmd_delete(&repo, &id, with_children),
         Commands::Show { id } => cmd_show(&repo, &id),
         Commands::Clear { yes } => cmd_clear(&repo, yes),
     }
@@ -197,10 +200,29 @@ fn cmd_edit(
     Ok(())
 }
 
-fn cmd_delete(repo: &dyn IssueRepository, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_delete(
+    repo: &dyn IssueRepository,
+    id: &str,
+    with_children: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let children = repo.get_by_parent(Some(id))?;
+    if !children.is_empty() && !with_children {
+        return Err(format!(
+            "Cannot delete issue {} - it has {} child issue(s). Use --with-children to delete anyway.",
+            id,
+            children.len()
+        ).into());
+    }
+
     let issue = repo.get_by_id(id)?;
     println!("{}", serde_json::to_string_pretty(&issue)?);
-    repo.delete(id)?;
+
+    if with_children {
+        repo.delete_with_children(id)?;
+    } else {
+        repo.delete(id)?;
+    }
+
     Ok(())
 }
 
