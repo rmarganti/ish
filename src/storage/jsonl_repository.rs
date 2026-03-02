@@ -2,7 +2,7 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::domain::{Issue, Status};
+use crate::domain::{Issue, Status, MAX_NESTING_DEPTH};
 use crate::storage::error::StorageError;
 use crate::storage::issue_repository::IssueRepository;
 
@@ -93,8 +93,35 @@ impl JSONLRepository {
     fn sort_issues(issues: &mut [Issue]) {
         issues.sort_by(|a, b| a.id.cmp(&b.id));
     }
+
+    /// Calculates the depth of an issue by tracing its parent chain.
+    ///
+    /// Depth counting:
+    /// - Root issue (no parent): depth = 0 (not applicable, this fn only called for children)
+    /// - Child of root: depth = 1
+    /// - Grandchild: depth = 2
+    /// - Great-grandchild: depth = 3
+    ///
+    /// With MAX_DEPTH = 3, we allow up to grandchild (depth 2) but reject great-grandchild (depth 3).
+    fn calculate_depth_from_issues(issues: &[Issue], parent_id: &str) -> usize {
+        let mut depth: usize = 0;
+        let mut current_parent_id = Some(parent_id.to_string());
+
+        while let Some(pid) = current_parent_id {
+            depth += 1;
+            current_parent_id = issues
+                .iter()
+                .find(|i| i.id == pid)
+                .and_then(|i| i.parent_id.clone());
+        }
+
+        depth
+    }
 }
 
+/// Maximum nesting depth for issues.
+/// Allows: root → child → grandchild (3 levels total)
+/// Rejects: root → child → grandchild → great-grandchild
 impl IssueRepository for JSONLRepository {
     fn create(&self, issue: &Issue) -> Result<(), StorageError> {
         let mut issues = self
@@ -107,6 +134,23 @@ impl IssueRepository for JSONLRepository {
                 "issue with id '{}' already exists",
                 issue.id
             )));
+        }
+
+        if let Some(ref parent_id) = issue.parent_id {
+            if !issues.iter().any(|i| &i.id == parent_id) {
+                return Err(StorageError::NotFound(format!(
+                    "parent issue '{}' not found",
+                    parent_id
+                )));
+            }
+
+            let depth = Self::calculate_depth_from_issues(&issues, parent_id);
+            if depth >= MAX_NESTING_DEPTH {
+                return Err(StorageError::WriteError(format!(
+                    "maximum depth of {} exceeded",
+                    MAX_NESTING_DEPTH
+                )));
+            }
         }
 
         issues.push(issue.clone());
@@ -240,6 +284,35 @@ impl IssueRepository for JSONLRepository {
             .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
 
         issues.remove(pos);
+        self.persist(&issues)?;
+        Ok(())
+    }
+
+    fn delete_with_children(&self, id: &str) -> Result<(), StorageError> {
+        let mut issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError::LockError(e.to_string()))?;
+
+        let mut to_delete: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        to_delete.push_back(id.to_string());
+
+        while let Some(current_id) = to_delete.pop_front() {
+            if let Some(pos) = issues.iter().position(|i| i.id == current_id) {
+                let children: Vec<String> = issues
+                    .iter()
+                    .filter(|i| i.parent_id.as_deref() == Some(&current_id))
+                    .map(|i| i.id.clone())
+                    .collect();
+
+                for child_id in children {
+                    to_delete.push_back(child_id);
+                }
+
+                issues.remove(pos);
+            }
+        }
+
         self.persist(&issues)?;
         Ok(())
     }
@@ -558,5 +631,47 @@ mod tests {
             StorageError::NotFound(_) => {}
             e => panic!("expected NotFound, got {:?}", e),
         }
+    }
+
+    // ---- depth validation ----
+
+    #[test]
+    fn test_depth_allows_grandchild() {
+        let repo = create_test_repo();
+
+        let root = Issue::new("Root".to_string(), None, None, None);
+        repo.create(&root).unwrap();
+
+        let child = Issue::new("Child".to_string(), None, None, Some(root.id.clone()));
+        repo.create(&child).unwrap();
+
+        let grandchild = Issue::new("Grandchild".to_string(), None, None, Some(child.id.clone()));
+        repo.create(&grandchild).unwrap();
+
+        let all = repo.get_all().unwrap();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[test]
+    fn test_depth_rejects_great_grandchild() {
+        let repo = create_test_repo();
+
+        let root = Issue::new("Root".to_string(), None, None, None);
+        repo.create(&root).unwrap();
+
+        let child = Issue::new("Child".to_string(), None, None, Some(root.id.clone()));
+        repo.create(&child).unwrap();
+
+        let grandchild = Issue::new("Grandchild".to_string(), None, None, Some(child.id.clone()));
+        repo.create(&grandchild).unwrap();
+
+        let great_grandchild = Issue::new(
+            "GreatGrandchild".to_string(),
+            None,
+            None,
+            Some(grandchild.id.clone()),
+        );
+        let result = repo.create(&great_grandchild);
+        assert!(result.is_err());
     }
 }
