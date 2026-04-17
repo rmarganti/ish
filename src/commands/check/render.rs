@@ -1,117 +1,10 @@
-use crate::app::{AppContext, AppError, RunOutcome, json_output_error};
-use crate::cli::CheckArgs;
-use crate::config::Config;
 use crate::core::store::{LinkCheckResult, LinkCycle, LinkRef, LinkType};
-use crate::output::{ErrorCode, danger, is_supported_color_name, output_success, success, warning};
+use crate::output::{danger, output_success, success, warning};
 use serde_json::{Value, json};
-use std::process::ExitCode;
 
-pub(crate) fn check_command(args: CheckArgs, json: bool) -> Result<RunOutcome, AppError> {
-    let context = AppContext::load()?;
-    let config = context.config;
-    let mut store = context.store;
-    let config_checks = validate_config(&config);
-    let initial_links = store.check_all_links();
-    let issues_found = config_checks.issue_count() + link_issue_count(&initial_links);
+use super::config::{ConfigChecks, link_issue_count};
 
-    let fixed_links = if args.fix {
-        Some(store.fix_broken_links().map_err(|error| {
-            AppError::new(
-                ErrorCode::FileError,
-                format!("failed to fix broken links: {error}"),
-            )
-        })?)
-    } else {
-        None
-    };
-    let final_links = if args.fix {
-        store.check_all_links()
-    } else {
-        initial_links.clone()
-    };
-
-    let output = if json {
-        render_check_json(&config_checks, &initial_links, &final_links, fixed_links)
-            .map_err(json_output_error)?
-    } else {
-        render_check_human(&config_checks, &initial_links, &final_links, fixed_links)
-    };
-
-    Ok(RunOutcome {
-        output: Some(output),
-        exit_code: if issues_found == 0 {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        },
-    })
-}
-
-#[derive(Debug, Clone)]
-struct ConfigChecks {
-    default_status: Option<String>,
-    default_type: Option<String>,
-    invalid_colors: Vec<String>,
-}
-
-impl ConfigChecks {
-    fn issue_count(&self) -> usize {
-        usize::from(self.default_status.is_some())
-            + usize::from(self.default_type.is_some())
-            + self.invalid_colors.len()
-    }
-}
-
-fn validate_config(config: &Config) -> ConfigChecks {
-    let mut invalid_colors = Vec::new();
-
-    for status_name in config.status_names() {
-        if let Some(status) = config.get_status(status_name)
-            && !is_supported_color_name(status.color)
-        {
-            invalid_colors.push(format!(
-                "status `{}` uses unsupported color `{}`",
-                status.name, status.color
-            ));
-        }
-    }
-
-    for type_name in config.type_names() {
-        if let Some(ishoo_type) = config.get_type(type_name)
-            && !is_supported_color_name(ishoo_type.color)
-        {
-            invalid_colors.push(format!(
-                "type `{}` uses unsupported color `{}`",
-                ishoo_type.name, ishoo_type.color
-            ));
-        }
-    }
-
-    for priority_name in config.priority_names() {
-        if let Some(priority) = config.get_priority(priority_name)
-            && !is_supported_color_name(priority.color)
-        {
-            invalid_colors.push(format!(
-                "priority `{}` uses unsupported color `{}`",
-                priority.name, priority.color
-            ));
-        }
-    }
-
-    ConfigChecks {
-        default_status: (!config.is_valid_status(&config.ish.default_status))
-            .then(|| format!("invalid default_status `{}`", config.ish.default_status)),
-        default_type: (!config.is_valid_type(&config.ish.default_type))
-            .then(|| format!("invalid default_type `{}`", config.ish.default_type)),
-        invalid_colors,
-    }
-}
-
-fn link_issue_count(result: &LinkCheckResult) -> usize {
-    result.broken_links.len() + result.self_links.len() + result.cycles.len()
-}
-
-fn render_check_human(
+pub(super) fn render_check_human(
     config_checks: &ConfigChecks,
     initial_links: &LinkCheckResult,
     final_links: &LinkCheckResult,
@@ -247,7 +140,7 @@ fn link_type_label(link_type: LinkType) -> &'static str {
     }
 }
 
-fn render_check_json(
+pub(super) fn render_check_json(
     config_checks: &ConfigChecks,
     initial_links: &LinkCheckResult,
     final_links: &LinkCheckResult,
