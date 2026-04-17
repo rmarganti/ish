@@ -17,20 +17,20 @@ pub struct Cli {
 pub enum Commands {
     /// Initialize a new ish project in the current directory.
     Init,
-    /// Create a new ishoo markdown file.
+    /// Create a new ish markdown file.
     Create(CreateArgs),
-    /// List ishoos, optionally filtered and sorted.
+    /// List ishes, optionally filtered and sorted.
     #[command(visible_alias = "ls")]
     List(ListArgs),
-    /// Update an existing ishoo.
+    /// Update an existing ish.
     #[command(visible_alias = "u")]
     Update(UpdateArgs),
-    /// Show one or more ishoos in detail.
+    /// Show one or more ishes in detail.
     Show(ShowArgs),
-    /// Delete one or more ishoos.
+    /// Delete one or more ishes.
     #[command(visible_alias = "rm")]
     Delete(DeleteArgs),
-    /// Move completed and scrapped ishoos to the archive directory.
+    /// Move completed and scrapped ishes to the archive directory.
     Archive,
     /// Validate configuration and link integrity.
     Check(CheckArgs),
@@ -70,14 +70,14 @@ pub struct CheckArgs {
 
 #[derive(Args)]
 pub struct CreateArgs {
-    /// Title for the new ishoo.
+    /// Title for the new ish.
     pub title: Option<String>,
     /// Override the initial status.
     #[arg(short = 's', long = "status")]
     pub status: Option<String>,
-    /// Override the ishoo type.
+    /// Override the ish type.
     #[arg(short = 't', long = "type")]
-    pub ishoo_type: Option<String>,
+    pub ish_type: Option<String>,
     /// Override the priority.
     #[arg(short = 'p', long = "priority")]
     pub priority: Option<String>,
@@ -90,7 +90,7 @@ pub struct CreateArgs {
     /// Add a tag. May be repeated.
     #[arg(long = "tag")]
     pub tags: Vec<String>,
-    /// Set the parent ishoo ID.
+    /// Set the parent ish ID.
     #[arg(long = "parent")]
     pub parent: Option<String>,
     /// Add a blocking relationship. May be repeated.
@@ -99,7 +99,7 @@ pub struct CreateArgs {
     /// Add a blocked-by relationship. May be repeated.
     #[arg(long = "blocked-by")]
     pub blocked_by: Vec<String>,
-    /// Override the ID prefix for the created ishoo.
+    /// Override the ID prefix for the created ish.
     #[arg(long = "prefix")]
     pub prefix: Option<String>,
 }
@@ -114,7 +114,7 @@ pub struct ListArgs {
     pub no_status: Vec<String>,
     /// Filter by type. May be repeated.
     #[arg(short = 't', long = "type")]
-    pub ishoo_type: Vec<String>,
+    pub ish_type: Vec<String>,
     /// Exclude types. May be repeated.
     #[arg(long = "no-type")]
     pub no_type: Vec<String>,
@@ -130,25 +130,25 @@ pub struct ListArgs {
     /// Exclude any matching tag. May be repeated.
     #[arg(long = "no-tag")]
     pub no_tag: Vec<String>,
-    /// Only include ishoos with a parent.
+    /// Only include ishes with a parent.
     #[arg(long, conflicts_with_all = ["no_parent", "parent"])]
     pub has_parent: bool,
-    /// Only include ishoos without a parent.
+    /// Only include ishes without a parent.
     #[arg(long, conflicts_with_all = ["has_parent", "parent"])]
     pub no_parent: bool,
     /// Only include children of the specified parent.
     #[arg(long = "parent", conflicts_with_all = ["has_parent", "no_parent"])]
     pub parent: Option<String>,
-    /// Only include ishoos that block other ishoos.
+    /// Only include ishes that block other ishs.
     #[arg(long, conflicts_with = "no_blocking")]
     pub has_blocking: bool,
-    /// Only include ishoos with no blocking links.
+    /// Only include ishes with no blocking links.
     #[arg(long, conflicts_with = "has_blocking")]
     pub no_blocking: bool,
-    /// Only include blocked ishoos.
+    /// Only include blocked ishes.
     #[arg(long)]
     pub is_blocked: bool,
-    /// Only include ready ishoos.
+    /// Only include ready ishes.
     #[arg(long)]
     pub ready: bool,
     /// Case-insensitive substring search.
@@ -167,14 +167,14 @@ pub struct ListArgs {
 
 #[derive(Args)]
 pub struct UpdateArgs {
-    /// ID of the ishoo to update.
+    /// ID of the ish to update.
     pub id: String,
     /// Set the status.
     #[arg(short = 's', long = "status")]
     pub status: Option<String>,
-    /// Set the ishoo type.
+    /// Set the ish type.
     #[arg(short = 't', long = "type")]
-    pub ishoo_type: Option<String>,
+    pub ish_type: Option<String>,
     /// Set the priority.
     #[arg(short = 'p', long = "priority")]
     pub priority: Option<String>,
@@ -203,7 +203,7 @@ pub struct UpdateArgs {
     /// Append text to the body; use `-` to read from stdin.
     #[arg(long = "body-append", conflicts_with_all = ["body", "body_file"])]
     pub body_append: Option<String>,
-    /// Set the parent ishoo ID.
+    /// Set the parent ish ID.
     #[arg(long = "parent", conflicts_with = "remove_parent")]
     pub parent: Option<String>,
     /// Remove the current parent relationship.
@@ -255,7 +255,7 @@ impl ListSortArg {
 
 #[derive(Args)]
 pub struct ShowArgs {
-    /// IDs of the ishoos to display.
+    /// IDs of the ishes to display.
     #[arg(required = true)]
     pub ids: Vec<String>,
     /// Print the raw markdown file content.
@@ -271,7 +271,7 @@ pub struct ShowArgs {
 
 #[derive(Args)]
 pub struct DeleteArgs {
-    /// IDs of the ishoos to delete.
+    /// IDs of the ishes to delete.
     #[arg(required = true)]
     pub ids: Vec<String>,
     /// Skip the confirmation prompt.

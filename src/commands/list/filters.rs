@@ -2,8 +2,8 @@ use crate::app::AppError;
 use crate::cli::ListArgs;
 use crate::config::Config;
 use crate::core::store::Store;
-use crate::core::{SortMode, sort_ishoos};
-use crate::model::ishoo::Ishoo;
+use crate::core::{SortMode, sort_ishes};
+use crate::model::ish::Ish;
 use crate::output::ErrorCode;
 use std::collections::HashMap;
 
@@ -15,7 +15,7 @@ pub(super) fn validate_list_args(args: &ListArgs, config: &Config) -> Result<(),
     )?;
     validate_named_filters(
         "type",
-        args.ishoo_type.iter().chain(args.no_type.iter()),
+        args.ish_type.iter().chain(args.no_type.iter()),
         |value| config.is_valid_type(value),
     )?;
     validate_named_filters(
@@ -43,23 +43,23 @@ where
     Ok(())
 }
 
-pub(super) fn filter_ishoos<'a>(
-    all_ishoos: &'a [Ishoo],
+pub(super) fn filter_ishes<'a>(
+    all_ishes: &'a [Ish],
     store: &Store,
     config: &Config,
     args: &ListArgs,
-) -> Vec<&'a Ishoo> {
+) -> Vec<&'a Ish> {
     let normalized_parent = args
         .parent
         .as_deref()
         .map(|parent| store.normalize_id(parent));
     let search = args.search.as_deref().map(str::to_ascii_lowercase);
 
-    all_ishoos
+    all_ishes
         .iter()
-        .filter(|ishoo| {
+        .filter(|ish| {
             match_filters(
-                ishoo,
+                ish,
                 store,
                 config,
                 args,
@@ -71,33 +71,33 @@ pub(super) fn filter_ishoos<'a>(
 }
 
 fn match_filters(
-    ishoo: &Ishoo,
+    ish: &Ish,
     store: &Store,
     config: &Config,
     args: &ListArgs,
     normalized_parent: Option<&str>,
     search: Option<&str>,
 ) -> bool {
-    let priority = ishoo.priority.as_deref().unwrap_or("normal");
+    let priority = ish.priority.as_deref().unwrap_or("normal");
 
-    if !args.status.is_empty() && !args.status.iter().any(|status| status == &ishoo.status) {
+    if !args.status.is_empty() && !args.status.iter().any(|status| status == &ish.status) {
         return false;
     }
-    if args.no_status.iter().any(|status| status == &ishoo.status) {
+    if args.no_status.iter().any(|status| status == &ish.status) {
         return false;
     }
-    if !args.ishoo_type.is_empty()
+    if !args.ish_type.is_empty()
         && !args
-            .ishoo_type
+            .ish_type
             .iter()
-            .any(|ishoo_type| ishoo_type == &ishoo.ishoo_type)
+            .any(|ish_type| ish_type == &ish.ish_type)
     {
         return false;
     }
     if args
         .no_type
         .iter()
-        .any(|ishoo_type| ishoo_type == &ishoo.ishoo_type)
+        .any(|ish_type| ish_type == &ish.ish_type)
     {
         return false;
     }
@@ -111,77 +111,74 @@ fn match_filters(
     {
         return false;
     }
-    if !args.tag.is_empty() && !args.tag.iter().any(|tag| ishoo.has_tag(tag)) {
+    if !args.tag.is_empty() && !args.tag.iter().any(|tag| ish.has_tag(tag)) {
         return false;
     }
-    if args.no_tag.iter().any(|tag| ishoo.has_tag(tag)) {
+    if args.no_tag.iter().any(|tag| ish.has_tag(tag)) {
         return false;
     }
-    if args.has_parent && ishoo.parent.is_none() {
+    if args.has_parent && ish.parent.is_none() {
         return false;
     }
-    if args.no_parent && ishoo.parent.is_some() {
+    if args.no_parent && ish.parent.is_some() {
         return false;
     }
-    if normalized_parent.is_some_and(|parent| ishoo.parent.as_deref() != Some(parent)) {
+    if normalized_parent.is_some_and(|parent| ish.parent.as_deref() != Some(parent)) {
         return false;
     }
-    if args.has_blocking && ishoo.blocking.is_empty() {
+    if args.has_blocking && ish.blocking.is_empty() {
         return false;
     }
-    if args.no_blocking && !ishoo.blocking.is_empty() {
+    if args.no_blocking && !ish.blocking.is_empty() {
         return false;
     }
-    if args.is_blocked && !store.is_blocked(&ishoo.id) {
+    if args.is_blocked && !store.is_blocked(&ish.id) {
         return false;
     }
-    if args.ready && !is_ready(ishoo, store, config) {
+    if args.ready && !is_ready(ish, store, config) {
         return false;
     }
-    if search.is_some_and(|query| !matches_search(ishoo, query)) {
+    if search.is_some_and(|query| !matches_search(ish, query)) {
         return false;
     }
 
     true
 }
 
-fn is_ready(ishoo: &Ishoo, store: &Store, config: &Config) -> bool {
-    ishoo.status != "in-progress"
-        && ishoo.status != "draft"
-        && !config.is_archive_status(&ishoo.status)
-        && !store.is_blocked(&ishoo.id)
-        && store.implicit_status(&ishoo.id).is_none()
+fn is_ready(ish: &Ish, store: &Store, config: &Config) -> bool {
+    ish.status != "in-progress"
+        && ish.status != "draft"
+        && !config.is_archive_status(&ish.status)
+        && !store.is_blocked(&ish.id)
+        && store.implicit_status(&ish.id).is_none()
 }
 
-fn matches_search(ishoo: &Ishoo, query: &str) -> bool {
-    ishoo.title.to_ascii_lowercase().contains(query)
-        || ishoo.slug.to_ascii_lowercase().contains(query)
-        || ishoo.body.to_ascii_lowercase().contains(query)
+fn matches_search(ish: &Ish, query: &str) -> bool {
+    ish.title.to_ascii_lowercase().contains(query)
+        || ish.slug.to_ascii_lowercase().contains(query)
+        || ish.body.to_ascii_lowercase().contains(query)
 }
 
-pub(super) fn sort_ishoo_refs<'a>(
-    ishoos: &[&'a Ishoo],
+pub(super) fn sort_ish_refs<'a>(
+    ishes: &[&'a Ish],
     sort_mode: SortMode,
     config: &Config,
-) -> Vec<&'a Ishoo> {
-    let owned = ishoos
-        .iter()
-        .map(|ishoo| (*ishoo).clone())
-        .collect::<Vec<_>>();
-    let sorted = sort_ishoos(
+) -> Vec<&'a Ish> {
+    let owned = ishes.iter().map(|ish| (*ish).clone()).collect::<Vec<_>>();
+    let sorted = sort_ishes(
         &owned,
         sort_mode,
         &config.status_names(),
         &config.priority_names(),
         &config.type_names(),
     );
-    let mut by_id = ishoos
+    let mut by_id = ishes
         .iter()
-        .map(|ishoo| (ishoo.id.as_str(), *ishoo))
+        .map(|ish| (ish.id.as_str(), *ish))
         .collect::<HashMap<_, _>>();
 
     sorted
         .into_iter()
-        .filter_map(|ishoo| by_id.remove(ishoo.id.as_str()))
+        .filter_map(|ish| by_id.remove(ish.id.as_str()))
         .collect()
 }

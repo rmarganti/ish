@@ -12,33 +12,33 @@ const PRIME_PROMPT_TEMPLATE: &str = include_str!("prime_prompt.tmpl");
 const COMMAND_REFERENCE: [(&str, &str); 11] = [
     (
         "init",
-        "Create a new `.ish.yml` and initialize the ishoo workspace.",
+        "Create a new `.ish.yml` and initialize the ish workspace.",
     ),
     (
         "create",
-        "Create a new ishoo markdown file with YAML frontmatter.",
+        "Create a new ish markdown file with YAML frontmatter.",
     ),
     (
         "list",
-        "List ishoos, optionally filtered by status, type, or text search.",
+        "List ishes, optionally filtered by status, type, or text search.",
     ),
-    ("update", "Update ishoo metadata or body content in place."),
+    ("update", "Update ish metadata or body content in place."),
     (
         "show",
-        "Show full ishoo details, including rendered markdown body output.",
+        "Show full ish details, including rendered markdown body output.",
     ),
-    ("delete", "Delete an ishoo markdown file."),
+    ("delete", "Delete an ish markdown file."),
     (
         "archive",
-        "Move completed or scrapped ishoos out of the active set.",
+        "Move completed or scrapped ishes out of the active set.",
     ),
     (
         "check",
-        "Run validation checks against the current ishoo workspace.",
+        "Run validation checks against the current ish workspace.",
     ),
     (
         "roadmap",
-        "Show hierarchy and dependency views across related ishoos.",
+        "Show hierarchy and dependency views across related ishes.",
     ),
     (
         "prime",
@@ -93,7 +93,7 @@ fn format_types(config: &Config) -> String {
         .map(|name| {
             let color = config
                 .get_type(name)
-                .map(|ishoo_type| ishoo_type.color)
+                .map(|ish_type| ish_type.color)
                 .unwrap_or("unknown");
             format!("- `{name}` (color: `{color}`)")
         })
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn prime_output_uses_config_values() {
         let mut config = Config::default_with_prefix("proj");
-        config.project.name = "Ishoo Tracker".to_string();
+        config.project.name = "Ish Tracker".to_string();
         config.ish.path = ".custom-ish".to_string();
         config.ish.default_type = "feature".to_string();
         config.ish.default_status = "draft".to_string();
@@ -161,22 +161,22 @@ mod tests {
         let output = prime_output(&config);
 
         assert!(output.contains("# ish Agent Guide"));
-        assert!(output.contains("in Ishoo Tracker"));
+        assert!(output.contains("in Ish Tracker"));
         assert!(
             output.contains("- `ish prime`: Print this AI-agent guide for the current project.")
         );
-        assert!(output.contains("- `ish update`: Update ishoo metadata or body content in place."));
+        assert!(output.contains("- `ish update`: Update ish metadata or body content in place."));
         assert!(output.contains(
-            "- `ish show`: Show full ishoo details, including rendered markdown body output."
+            "- `ish show`: Show full ish details, including rendered markdown body output."
         ));
         assert!(output.contains("- `feature` (color: `green`)"));
         assert!(output.contains("- `completed` (color: `gray`; archive status)"));
         assert!(output.contains("- `critical` (color: `red`)"));
         assert!(output.contains("Workspace path: `.custom-ish`"));
-        assert!(output.contains("Default new ishoo type: `feature`"));
-        assert!(output.contains("Default new ishoo status: `draft`"));
+        assert!(output.contains("Default new ish type: `feature`"));
+        assert!(output.contains("Default new ish status: `draft`"));
         assert!(output.contains("Prefix new IDs with `proj-`"));
-        assert!(output.contains("Use `ish` as the source of truth for work in Ishoo Tracker."));
+        assert!(output.contains("Use `ish` as the source of truth for work in Ish Tracker."));
         assert!(output.contains("Use `ish list --json` for machine-readable output."));
         assert!(!output.contains("{{commands}}"));
     }

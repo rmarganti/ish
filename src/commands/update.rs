@@ -1,6 +1,6 @@
 use crate::app::{AppContext, AppError, json_output_error, store_app_error};
 use crate::cli::UpdateArgs;
-use crate::core::store::UpdateIshoo;
+use crate::core::store::UpdateIsh;
 use crate::output::{ErrorCode, muted, output_success, render_id, success};
 use std::fs;
 use std::io::{self, Read};
@@ -33,7 +33,7 @@ pub(crate) fn update_command(args: UpdateArgs, json: bool) -> Result<Option<Stri
     ))))
 }
 
-pub(crate) fn resolve_update_changes(args: UpdateArgs) -> Result<(String, UpdateIshoo), AppError> {
+pub(crate) fn resolve_update_changes(args: UpdateArgs) -> Result<(String, UpdateIsh), AppError> {
     let body = resolve_optional_body(args.body, args.body_file)?;
     let body_append = resolve_optional_stdin_text(args.body_append, "body append")?;
     let body_replace = args.body_replace_old.zip(args.body_replace_new);
@@ -51,7 +51,7 @@ pub(crate) fn resolve_update_changes(args: UpdateArgs) -> Result<(String, Update
     });
 
     let has_changes = args.status.is_some()
-        || args.ishoo_type.is_some()
+        || args.ish_type.is_some()
         || priority.is_some()
         || args.title.is_some()
         || body.is_some()
@@ -71,9 +71,9 @@ pub(crate) fn resolve_update_changes(args: UpdateArgs) -> Result<(String, Update
 
     Ok((
         args.id,
-        UpdateIshoo {
+        UpdateIsh {
             status: args.status,
-            ishoo_type: args.ishoo_type,
+            ish_type: args.ish_type,
             priority,
             title: args.title,
             body,
@@ -146,7 +146,7 @@ mod tests {
     use crate::cli::UpdateArgs;
     use crate::config::Config;
     use crate::output::ErrorCode;
-    use crate::test_support::{TestDir, WorkingDirGuard, write_test_ishoo};
+    use crate::test_support::{TestDir, WorkingDirGuard, write_test_ish};
     use serde_json::Value;
     use std::fs;
     use std::io::Cursor;
@@ -165,7 +165,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-parent",
             "Parent",
@@ -178,7 +178,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-blocker",
             "Blocker",
@@ -191,7 +191,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-dependency",
             "Dependency",
@@ -204,7 +204,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-target",
             "Original title",
@@ -223,7 +223,7 @@ mod tests {
             UpdateArgs {
                 id: "target".to_string(),
                 status: Some("in-progress".to_string()),
-                ishoo_type: Some("bug".to_string()),
+                ish_type: Some("bug".to_string()),
                 priority: Some("high".to_string()),
                 title: Some("Updated title".to_string()),
                 body: None,
@@ -296,7 +296,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-target",
             "Target",
@@ -309,7 +309,7 @@ mod tests {
             &["ish-dependency"],
             &["cli"],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-parent",
             "Parent",
@@ -327,7 +327,7 @@ mod tests {
         let changes = resolve_update_changes(UpdateArgs {
             id: "target".to_string(),
             status: None,
-            ishoo_type: None,
+            ish_type: None,
             priority: Some("none".to_string()),
             title: None,
             body: None,
@@ -373,7 +373,7 @@ mod tests {
         let error = resolve_update_changes(UpdateArgs {
             id: "target".to_string(),
             status: None,
-            ishoo_type: None,
+            ish_type: None,
             priority: None,
             title: None,
             body: None,
@@ -404,7 +404,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-target",
             "Target",
@@ -423,7 +423,7 @@ mod tests {
             UpdateArgs {
                 id: "target".to_string(),
                 status: Some("in-progress".to_string()),
-                ishoo_type: None,
+                ish_type: None,
                 priority: None,
                 title: None,
                 body: None,
@@ -456,7 +456,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let archive_root = temp.path().join(".ish").join("archive");
         fs::create_dir_all(&archive_root).expect("archive root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &archive_root,
             "ish-target",
             "Archived title",
@@ -475,7 +475,7 @@ mod tests {
             UpdateArgs {
                 id: "target".to_string(),
                 status: Some("todo".to_string()),
-                ishoo_type: None,
+                ish_type: None,
                 priority: None,
                 title: Some("Restored title".to_string()),
                 body: None,

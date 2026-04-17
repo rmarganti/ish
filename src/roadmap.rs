@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::core::store::Store;
-use crate::model::ishoo::{Ishoo, IshooJson};
+use crate::model::ish::{Ish, IshJson};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
@@ -26,21 +26,21 @@ pub struct Roadmap {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoadmapMilestone {
-    pub milestone: Ishoo,
+    pub milestone: Ish,
     pub epics: Vec<RoadmapEpic>,
-    pub items: Vec<Ishoo>,
+    pub items: Vec<Ish>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoadmapEpic {
-    pub epic: Ishoo,
-    pub items: Vec<Ishoo>,
+    pub epic: Ish,
+    pub items: Vec<Ish>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RoadmapUnscheduled {
     pub epics: Vec<RoadmapEpic>,
-    pub items: Vec<Ishoo>,
+    pub items: Vec<Ish>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,18 +52,18 @@ pub struct RoadmapJson {
 
 #[derive(Debug, Serialize)]
 pub struct RoadmapMilestoneJson {
-    pub milestone: IshooJson,
+    pub milestone: IshJson,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub epics: Vec<RoadmapEpicJson>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub items: Vec<IshooJson>,
+    pub items: Vec<IshJson>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RoadmapEpicJson {
-    pub epic: IshooJson,
+    pub epic: IshJson,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub items: Vec<IshooJson>,
+    pub items: Vec<IshJson>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -71,7 +71,7 @@ pub struct RoadmapUnscheduledJson {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub epics: Vec<RoadmapEpicJson>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub items: Vec<IshooJson>,
+    pub items: Vec<IshJson>,
 }
 
 impl RoadmapUnscheduledJson {
@@ -100,8 +100,8 @@ pub fn roadmap_output(
         .load()
         .map_err(|error| format!("failed to load store `{}`: {error}", store_root.display()))?;
 
-    let ishoos = store.all().into_iter().cloned().collect::<Vec<_>>();
-    let roadmap = build_roadmap(&config, &ishoos, options);
+    let ishes = store.all().into_iter().cloned().collect::<Vec<_>>();
+    let roadmap = build_roadmap(&config, &ishes, options);
 
     if options.json {
         let json = serde_json::to_string_pretty(&roadmap.to_json())
@@ -112,41 +112,41 @@ pub fn roadmap_output(
     }
 }
 
-pub fn build_roadmap(config: &Config, ishoos: &[Ishoo], options: &RoadmapOptions) -> Roadmap {
-    let visible = ishoos
+pub fn build_roadmap(config: &Config, ishes: &[Ish], options: &RoadmapOptions) -> Roadmap {
+    let visible = ishes
         .iter()
-        .filter(|ishoo| options.include_done || !config.is_archive_status(&ishoo.status))
+        .filter(|ish| options.include_done || !config.is_archive_status(&ish.status))
         .cloned()
         .collect::<Vec<_>>();
     let by_id = visible
         .iter()
         .cloned()
-        .map(|ishoo| (ishoo.id.clone(), ishoo))
+        .map(|ish| (ish.id.clone(), ish))
         .collect::<HashMap<_, _>>();
 
     let visible_milestones = visible
         .iter()
-        .filter(|ishoo| ishoo.ishoo_type == "milestone")
-        .filter(|ishoo| matches_status_filter(ishoo, options))
+        .filter(|ish| ish.ish_type == "milestone")
+        .filter(|ish| matches_status_filter(ish, options))
         .cloned()
         .collect::<Vec<_>>();
     let visible_milestone_ids = visible_milestones
         .iter()
-        .map(|ishoo| ishoo.id.clone())
+        .map(|ish| ish.id.clone())
         .collect::<std::collections::HashSet<_>>();
     let visible_epics = visible
         .iter()
-        .filter(|ishoo| ishoo.ishoo_type == "epic")
+        .filter(|ish| ish.ish_type == "epic")
         .cloned()
         .collect::<Vec<_>>();
     let visible_epic_ids = visible_epics
         .iter()
-        .map(|ishoo| ishoo.id.clone())
+        .map(|ish| ish.id.clone())
         .collect::<std::collections::HashSet<_>>();
 
-    let mut epics_by_milestone: BTreeMap<String, Vec<Ishoo>> = BTreeMap::new();
-    let mut direct_items_by_milestone: BTreeMap<String, Vec<Ishoo>> = BTreeMap::new();
-    let mut items_by_epic: BTreeMap<String, Vec<Ishoo>> = BTreeMap::new();
+    let mut epics_by_milestone: BTreeMap<String, Vec<Ish>> = BTreeMap::new();
+    let mut direct_items_by_milestone: BTreeMap<String, Vec<Ish>> = BTreeMap::new();
+    let mut items_by_epic: BTreeMap<String, Vec<Ish>> = BTreeMap::new();
     let mut unscheduled_epics = Vec::new();
     let mut unscheduled_items = Vec::new();
 
@@ -165,7 +165,7 @@ pub fn build_roadmap(config: &Config, ishoos: &[Ishoo], options: &RoadmapOptions
 
     for item in visible
         .iter()
-        .filter(|ishoo| ishoo.ishoo_type != "milestone" && ishoo.ishoo_type != "epic")
+        .filter(|ish| ish.ish_type != "milestone" && ish.ish_type != "epic")
     {
         let milestone_id = nearest_milestone(item, &by_id);
         let epic_id = nearest_epic(item, &by_id);
@@ -330,37 +330,34 @@ impl Roadmap {
     }
 }
 
-fn to_json_issue(ishoo: &Ishoo) -> IshooJson {
-    ishoo.to_json(&ishoo.etag())
+fn to_json_issue(ish: &Ish) -> IshJson {
+    ish.to_json(&ish.etag())
 }
 
-fn matches_status_filter(ishoo: &Ishoo, options: &RoadmapOptions) -> bool {
+fn matches_status_filter(ish: &Ish, options: &RoadmapOptions) -> bool {
     let allowed =
-        options.status.is_empty() || options.status.iter().any(|status| status == &ishoo.status);
-    let excluded = options
-        .no_status
-        .iter()
-        .any(|status| status == &ishoo.status);
+        options.status.is_empty() || options.status.iter().any(|status| status == &ish.status);
+    let excluded = options.no_status.iter().any(|status| status == &ish.status);
     allowed && !excluded
 }
 
-fn nearest_milestone(ishoo: &Ishoo, by_id: &HashMap<String, Ishoo>) -> Option<String> {
-    walk_parents(ishoo, by_id)
-        .find(|candidate| candidate.ishoo_type == "milestone")
+fn nearest_milestone(ish: &Ish, by_id: &HashMap<String, Ish>) -> Option<String> {
+    walk_parents(ish, by_id)
+        .find(|candidate| candidate.ish_type == "milestone")
         .map(|candidate| candidate.id.clone())
 }
 
-fn nearest_epic(ishoo: &Ishoo, by_id: &HashMap<String, Ishoo>) -> Option<String> {
-    walk_parents(ishoo, by_id)
-        .find(|candidate| candidate.ishoo_type == "epic")
+fn nearest_epic(ish: &Ish, by_id: &HashMap<String, Ish>) -> Option<String> {
+    walk_parents(ish, by_id)
+        .find(|candidate| candidate.ish_type == "epic")
         .map(|candidate| candidate.id.clone())
 }
 
 fn walk_parents<'a>(
-    ishoo: &'a Ishoo,
-    by_id: &'a HashMap<String, Ishoo>,
-) -> impl Iterator<Item = &'a Ishoo> {
-    let mut next_id = ishoo.parent.as_deref();
+    ish: &'a Ish,
+    by_id: &'a HashMap<String, Ish>,
+) -> impl Iterator<Item = &'a Ish> {
+    let mut next_id = ish.parent.as_deref();
     std::iter::from_fn(move || {
         let current_id = next_id?;
         let parent = by_id.get(current_id)?;
@@ -369,9 +366,9 @@ fn walk_parents<'a>(
     })
 }
 
-fn compare_issues(config: &Config, left: &Ishoo, right: &Ishoo) -> std::cmp::Ordering {
-    type_rank(config, &left.ishoo_type)
-        .cmp(&type_rank(config, &right.ishoo_type))
+fn compare_issues(config: &Config, left: &Ish, right: &Ish) -> std::cmp::Ordering {
+    type_rank(config, &left.ish_type)
+        .cmp(&type_rank(config, &right.ish_type))
         .then_with(|| status_rank(config, &left.status).cmp(&status_rank(config, &right.status)))
         .then_with(|| {
             left.title
@@ -381,7 +378,7 @@ fn compare_issues(config: &Config, left: &Ishoo, right: &Ishoo) -> std::cmp::Ord
         .then_with(|| left.id.cmp(&right.id))
 }
 
-fn sort_issues(config: &Config, issues: &mut [Ishoo]) {
+fn sort_issues(config: &Config, issues: &mut [Ish]) {
     issues.sort_by(|left, right| compare_issues(config, left, right));
 }
 
@@ -393,11 +390,11 @@ fn status_rank(config: &Config, status: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-fn type_rank(config: &Config, ishoo_type: &str) -> usize {
+fn type_rank(config: &Config, ish_type: &str) -> usize {
     config
         .type_names()
         .iter()
-        .position(|candidate| *candidate == ishoo_type)
+        .position(|candidate| *candidate == ish_type)
         .unwrap_or(usize::MAX)
 }
 
@@ -409,7 +406,7 @@ fn push_excerpt(out: &mut String, body: &str) {
     }
 }
 
-fn push_items(config: &Config, out: &mut String, items: &[Ishoo], options: &RoadmapOptions) {
+fn push_items(config: &Config, out: &mut String, items: &[Ish], options: &RoadmapOptions) {
     if items.is_empty() {
         return;
     }
@@ -418,7 +415,7 @@ fn push_items(config: &Config, out: &mut String, items: &[Ishoo], options: &Road
         let _ = writeln!(
             out,
             "- {} {} ({})",
-            type_badge(config, &item.ishoo_type),
+            type_badge(config, &item.ish_type),
             item.title,
             issue_ref(config, item, options)
         );
@@ -434,13 +431,13 @@ fn excerpt(body: &str) -> String {
     }
 }
 
-fn type_badge(config: &Config, ishoo_type: &str) -> String {
+fn type_badge(config: &Config, ish_type: &str) -> String {
     let color_name = config
-        .get_type(ishoo_type)
-        .map(|ishoo_type| ishoo_type.color)
+        .get_type(ish_type)
+        .map(|ish_type| ish_type.color)
         .unwrap_or("gray");
     let color = shield_color(color_name);
-    format!("![{ishoo_type}](https://img.shields.io/badge/{ishoo_type}-{color}?style=flat-square)")
+    format!("![{ish_type}](https://img.shields.io/badge/{ish_type}-{color}?style=flat-square)")
 }
 
 fn shield_color(color: &str) -> &'static str {
@@ -457,15 +454,15 @@ fn shield_color(color: &str) -> &'static str {
     }
 }
 
-fn issue_ref(config: &Config, ishoo: &Ishoo, options: &RoadmapOptions) -> String {
+fn issue_ref(config: &Config, ish: &Ish, options: &RoadmapOptions) -> String {
     if options.no_links {
-        return ishoo.id.clone();
+        return ish.id.clone();
     }
 
-    format!("[{}]({})", ishoo.id, issue_link(config, ishoo, options))
+    format!("[{}]({})", ish.id, issue_link(config, ish, options))
 }
 
-fn issue_link(config: &Config, ishoo: &Ishoo, options: &RoadmapOptions) -> String {
+fn issue_link(config: &Config, ish: &Ish, options: &RoadmapOptions) -> String {
     let base = options
         .link_prefix
         .as_deref()
@@ -473,9 +470,9 @@ fn issue_link(config: &Config, ishoo: &Ishoo, options: &RoadmapOptions) -> Strin
         .trim_end_matches('/');
 
     if base.is_empty() {
-        ishoo.path.clone()
+        ish.path.clone()
     } else {
-        format!("{base}/{}", ishoo.path)
+        format!("{base}/{}", ish.path)
     }
 }
 
@@ -483,17 +480,17 @@ fn issue_link(config: &Config, ishoo: &Ishoo, options: &RoadmapOptions) -> Strin
 mod tests {
     use super::{RoadmapOptions, build_roadmap, render_markdown};
     use crate::config::Config;
-    use crate::model::ishoo::Ishoo;
+    use crate::model::ish::Ish;
     use chrono::{TimeZone, Utc};
 
-    fn issue(id: &str, title: &str, status: &str, ishoo_type: &str, parent: Option<&str>) -> Ishoo {
-        Ishoo {
+    fn issue(id: &str, title: &str, status: &str, ish_type: &str, parent: Option<&str>) -> Ish {
+        Ish {
             id: id.to_string(),
             slug: title.to_ascii_lowercase().replace(' ', "-"),
             path: format!("{id}.md"),
             title: title.to_string(),
             status: status.to_string(),
-            ishoo_type: ishoo_type.to_string(),
+            ish_type: ish_type.to_string(),
             priority: Some("normal".to_string()),
             tags: Vec::new(),
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),

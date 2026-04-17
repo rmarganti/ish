@@ -104,7 +104,7 @@ mod tests {
             check_command(CheckArgs { fix: true }, false).expect("check command should succeed");
         let output = outcome.output.expect("check command should print output");
         let contents = fs::read_to_string(store_root.join("ish-a--a.md"))
-            .expect("updated ishoo should be readable");
+            .expect("updated ish should be readable");
 
         assert_eq!(outcome.exit_code, ExitCode::FAILURE);
         assert!(output.contains("Applied --fix to 2 link(s)"));

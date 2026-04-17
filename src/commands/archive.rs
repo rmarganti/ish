@@ -7,7 +7,7 @@ pub(crate) fn archive_command(json: bool) -> Result<Option<String>, AppError> {
     let archived = store.archive_all_completed().map_err(|error| {
         AppError::new(
             ErrorCode::FileError,
-            format!("failed to archive completed ishoos: {error}"),
+            format!("failed to archive completed ishes: {error}"),
         )
     })?;
 
@@ -18,11 +18,11 @@ pub(crate) fn archive_command(json: bool) -> Result<Option<String>, AppError> {
     }
 
     let message = if archived == 0 {
-        "no completed or scrapped ishoos to archive".to_string()
+        "no completed or scrapped ishes to archive".to_string()
     } else if archived == 1 {
-        "archived 1 ishoo".to_string()
+        "archived 1 ish".to_string()
     } else {
-        format!("archived {archived} ishoos")
+        format!("archived {archived} ishes")
     };
 
     if archived == 0 {
@@ -43,7 +43,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn run_archive_moves_completed_ishoos() {
+    fn run_archive_moves_completed_ishes() {
         let temp = TestDir::new();
         let mut config = Config::default();
         config.project.name = "Archive Test".to_string();
@@ -70,7 +70,7 @@ mod tests {
         .output
         .expect("archive command should print output");
 
-        assert!(output.contains("archived 1 ishoo"));
+        assert!(output.contains("archived 1 ish"));
         assert!(store_root.join("archive/ish-done--completed.md").exists());
         assert!(!store_root.join("ish-done--completed.md").exists());
         assert!(store_root.join("ish-todo--todo.md").exists());
@@ -95,7 +95,7 @@ mod tests {
             .expect("archive command should succeed")
             .expect("archive command should print output");
 
-        assert!(output.contains("no completed or scrapped ishoos to archive"));
+        assert!(output.contains("no completed or scrapped ishes to archive"));
         assert!(!store_root.join("archive").exists());
     }
 

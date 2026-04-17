@@ -61,12 +61,12 @@ fn cwd_lock() -> &'static Mutex<()> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn write_test_ishoo(
+pub(crate) fn write_test_ish(
     root: &Path,
     id: &str,
     title: &str,
     status: &str,
-    ishoo_type: &str,
+    ish_type: &str,
     priority: Option<&str>,
     body: &str,
     parent: Option<&str>,
@@ -75,7 +75,7 @@ pub(crate) fn write_test_ishoo(
     tags: &[&str],
 ) {
     let mut content = format!(
-        "---\n# {id}\ntitle: {title}\nstatus: {status}\ntype: {ishoo_type}\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n"
+        "---\n# {id}\ntitle: {title}\nstatus: {status}\ntype: {ish_type}\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n"
     );
 
     if let Some(priority) = priority {
@@ -114,5 +114,5 @@ pub(crate) fn write_test_ishoo(
         )),
         content,
     )
-    .expect("ishoo file should be written");
+    .expect("ish file should be written");
 }
