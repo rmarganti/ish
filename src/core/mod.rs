@@ -191,6 +191,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sortable_ish(
         id: &str,
         title: &str,

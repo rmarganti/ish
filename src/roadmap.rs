@@ -478,7 +478,7 @@ fn issue_link(config: &Config, ish: &Ish, options: &RoadmapOptions) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RoadmapOptions, build_roadmap, render_markdown};
+    use super::{build_roadmap, render_markdown, RoadmapOptions};
     use crate::config::Config;
     use crate::model::ish::Ish;
     use chrono::{TimeZone, Utc};
@@ -599,7 +599,7 @@ mod tests {
             },
         );
         assert!(plain.contains("Milestone: Milestone (ish-m1)"));
-        assert!(plain.contains("CLI") == false);
+        assert!(!plain.contains("CLI"));
     }
 
     #[test]
