@@ -29,6 +29,13 @@ pub enum StoreError {
     InvalidType(String),
     InvalidPriority(String),
     InvalidTag(String),
+    ParentNotAllowed(String),
+    InvalidParentType {
+        child_type: String,
+        parent_id: String,
+        parent_type: String,
+        allowed_parent_types: Vec<&'static str>,
+    },
     NotFound(String),
     ETagMismatch {
         expected: String,
@@ -202,6 +209,10 @@ impl Store {
                 .map_err(|_| StoreError::InvalidTag(tag.clone()))?;
         }
 
+        if let Some(parent_id) = ishoo.parent.as_deref() {
+            self.validate_parent(&ishoo, parent_id)?;
+        }
+
         self.save_to_disk(&ishoo)?;
         self.ishoos.insert(id, ishoo.clone());
         Ok(ishoo)
@@ -288,6 +299,10 @@ impl Store {
             changes.add_blocked_by,
             changes.remove_blocked_by,
         );
+
+        if let Some(parent_id) = updated.parent.clone() {
+            self.validate_parent(&updated, &parent_id)?;
+        }
 
         updated.updated_at = Utc::now();
 
@@ -816,6 +831,40 @@ impl Store {
         }
     }
 
+    fn valid_parent_types(ishoo_type: &str) -> &'static [&'static str] {
+        match ishoo_type {
+            "milestone" => &[],
+            "epic" => &["milestone"],
+            "feature" => &["milestone", "epic"],
+            "task" | "bug" => &["milestone", "epic", "feature"],
+            _ => &[],
+        }
+    }
+
+    fn validate_parent(&self, ishoo: &Ishoo, parent_id: &str) -> Result<(), StoreError> {
+        let allowed_parent_types = Self::valid_parent_types(&ishoo.ishoo_type);
+        if allowed_parent_types.is_empty() {
+            return Err(StoreError::ParentNotAllowed(ishoo.ishoo_type.clone()));
+        }
+
+        let normalized_parent_id = self.normalize_id(parent_id);
+        let parent = self
+            .ishoos
+            .get(&normalized_parent_id)
+            .ok_or_else(|| StoreError::NotFound(normalized_parent_id.clone()))?;
+
+        if allowed_parent_types.contains(&parent.ishoo_type.as_str()) {
+            Ok(())
+        } else {
+            Err(StoreError::InvalidParentType {
+                child_type: ishoo.ishoo_type.clone(),
+                parent_id: normalized_parent_id,
+                parent_type: parent.ishoo_type.clone(),
+                allowed_parent_types: allowed_parent_types.to_vec(),
+            })
+        }
+    }
+
     fn find_cycle_path(
         &self,
         from_id: &str,
@@ -909,6 +958,19 @@ impl fmt::Display for StoreError {
             StoreError::InvalidType(ishoo_type) => write!(f, "invalid type: {ishoo_type}"),
             StoreError::InvalidPriority(priority) => write!(f, "invalid priority: {priority}"),
             StoreError::InvalidTag(tag) => write!(f, "invalid tag: {tag}"),
+            StoreError::ParentNotAllowed(ishoo_type) => {
+                write!(f, "type `{ishoo_type}` cannot have a parent")
+            }
+            StoreError::InvalidParentType {
+                child_type,
+                parent_id,
+                parent_type,
+                allowed_parent_types,
+            } => write!(
+                f,
+                "invalid parent `{parent_id}` of type `{parent_type}` for child type `{child_type}`; allowed parent types: {}",
+                allowed_parent_types.join(", ")
+            ),
             StoreError::NotFound(id) => write!(f, "ishoo not found: {id}"),
             StoreError::ETagMismatch { expected, actual } => {
                 write!(f, "etag mismatch: expected {expected}, actual {actual}")
@@ -933,6 +995,8 @@ impl std::error::Error for StoreError {
             | StoreError::InvalidType(_)
             | StoreError::InvalidPriority(_)
             | StoreError::InvalidTag(_)
+            | StoreError::ParentNotAllowed(_)
+            | StoreError::InvalidParentType { .. }
             | StoreError::NotFound(_)
             | StoreError::ETagMismatch { .. } => None,
         }
@@ -1398,7 +1462,18 @@ mod tests {
     fn create_writes_new_ishoo_to_disk_and_store() {
         let temp = TestDir::new();
         let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-parent--parent.md"),
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+        );
         let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
 
         let created = store
             .create(CreateIshoo {
@@ -1441,6 +1516,15 @@ mod tests {
         let original_path = root.join("ish-abcd--old-title.md");
 
         fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-parent--parent.md"),
+            "ish-parent",
+            "Parent",
+            "todo",
+            "epic",
+            Some("normal"),
+            "Parent body.",
+        );
         write_ishoo(
             &original_path,
             "ish-abcd",
@@ -1527,6 +1611,149 @@ mod tests {
             .expect_err("update should fail on mismatched etag");
 
         assert!(matches!(error, StoreError::ETagMismatch { .. }));
+    }
+
+    #[test]
+    fn valid_parent_types_match_expected_hierarchy() {
+        assert_eq!(Store::valid_parent_types("milestone"), &[] as &[&str]);
+        assert_eq!(Store::valid_parent_types("epic"), &["milestone"]);
+        assert_eq!(Store::valid_parent_types("feature"), &["milestone", "epic"]);
+        assert_eq!(
+            Store::valid_parent_types("task"),
+            &["milestone", "epic", "feature"]
+        );
+        assert_eq!(
+            Store::valid_parent_types("bug"),
+            &["milestone", "epic", "feature"]
+        );
+    }
+
+    #[test]
+    fn create_rejects_invalid_parent_hierarchy() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-task-parent--task-parent.md"),
+            "ish-task-parent",
+            "Task parent",
+            "todo",
+            "task",
+            Some("normal"),
+            "Task parent body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let error = store
+            .create(CreateIshoo {
+                title: "Feature child".to_string(),
+                ishoo_type: Some("feature".to_string()),
+                parent: Some("task-parent".to_string()),
+                ..CreateIshoo::default()
+            })
+            .expect_err("create should reject invalid parent hierarchy");
+
+        assert!(matches!(
+            error,
+            StoreError::InvalidParentType {
+                child_type,
+                parent_id,
+                parent_type,
+                allowed_parent_types,
+            } if child_type == "feature"
+                && parent_id == "ish-task-parent"
+                && parent_type == "task"
+                && allowed_parent_types == vec!["milestone", "epic"]
+        ));
+    }
+
+    #[test]
+    fn create_rejects_parent_for_milestone() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-parent--parent.md"),
+            "ish-parent",
+            "Parent",
+            "todo",
+            "milestone",
+            Some("normal"),
+            "Parent body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let error = store
+            .create(CreateIshoo {
+                title: "Milestone child".to_string(),
+                ishoo_type: Some("milestone".to_string()),
+                parent: Some("parent".to_string()),
+                ..CreateIshoo::default()
+            })
+            .expect_err("milestone should reject parent assignments");
+
+        assert!(
+            matches!(error, StoreError::ParentNotAllowed(ref ishoo_type) if ishoo_type == "milestone")
+        );
+    }
+
+    #[test]
+    fn update_rejects_invalid_parent_hierarchy_after_type_change() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-parent--parent.md"),
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+        );
+        write_ishoo(
+            &root.join("ish-child--child.md"),
+            "ish-child",
+            "Child",
+            "todo",
+            "task",
+            Some("normal"),
+            "Child body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let error = store
+            .update(
+                "child",
+                UpdateIshoo {
+                    ishoo_type: Some("epic".to_string()),
+                    parent: Some(Some("parent".to_string())),
+                    ..UpdateIshoo::default()
+                },
+            )
+            .expect_err("update should reject invalid parent hierarchy");
+
+        assert!(matches!(
+            error,
+            StoreError::InvalidParentType {
+                child_type,
+                parent_id,
+                parent_type,
+                allowed_parent_types,
+            } if child_type == "epic"
+                && parent_id == "ish-parent"
+                && parent_type == "feature"
+                && allowed_parent_types == vec!["milestone"]
+        ));
     }
 
     #[test]
