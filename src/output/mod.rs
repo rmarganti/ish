@@ -170,6 +170,10 @@ fn color_name_to_color(color_name: &str) -> Option<Color> {
     }
 }
 
+pub(crate) fn is_supported_color_name(color_name: &str) -> bool {
+    color_name_to_color(color_name).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
