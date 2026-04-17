@@ -119,6 +119,7 @@ mod tests {
     use crate::config::Config;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestDir {
@@ -149,14 +150,21 @@ mod tests {
     }
 
     struct WorkingDirGuard {
+        _lock: MutexGuard<'static, ()>,
         original: PathBuf,
     }
 
     impl WorkingDirGuard {
         fn change_to(path: &Path) -> Self {
+            let lock = cwd_lock()
+                .lock()
+                .expect("working directory test lock should not be poisoned");
             let original = std::env::current_dir().expect("current directory should be readable");
             std::env::set_current_dir(path).expect("current directory should be changed");
-            Self { original }
+            Self {
+                _lock: lock,
+                original,
+            }
         }
     }
 
@@ -164,6 +172,11 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::env::set_current_dir(&self.original);
         }
+    }
+
+    fn cwd_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     #[test]

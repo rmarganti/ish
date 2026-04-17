@@ -4,7 +4,7 @@ use crate::model::ishoo::{
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
@@ -97,6 +97,33 @@ struct DiskFrontmatter {
     blocking: Vec<String>,
     #[serde(default)]
     blocked_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LinkType {
+    Parent,
+    Blocking,
+    BlockedBy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkRef {
+    pub source_id: String,
+    pub link_type: LinkType,
+    pub target_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkCycle {
+    pub link_type: LinkType,
+    pub path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkCheckResult {
+    pub broken_links: Vec<LinkRef>,
+    pub self_links: Vec<LinkRef>,
+    pub cycles: Vec<LinkCycle>,
 }
 
 impl Store {
@@ -420,6 +447,149 @@ impl Store {
         Ok(ids_to_archive.len())
     }
 
+    pub fn detect_cycle(&self, from_id: &str, link_type: LinkType, to_id: &str) -> bool {
+        self.find_cycle_path(from_id, link_type, to_id).is_some()
+    }
+
+    pub fn find_incoming_links(&self, target_id: &str) -> Vec<LinkRef> {
+        let target_id = self.normalize_id(target_id);
+        let mut incoming = Vec::new();
+
+        for ishoo in self.ishoos.values() {
+            if ishoo.parent.as_deref() == Some(target_id.as_str()) {
+                incoming.push(LinkRef {
+                    source_id: ishoo.id.clone(),
+                    link_type: LinkType::Parent,
+                    target_id: target_id.clone(),
+                });
+            }
+
+            for linked_id in &ishoo.blocking {
+                if linked_id == &target_id {
+                    incoming.push(LinkRef {
+                        source_id: ishoo.id.clone(),
+                        link_type: LinkType::Blocking,
+                        target_id: target_id.clone(),
+                    });
+                }
+            }
+
+            for linked_id in &ishoo.blocked_by {
+                if linked_id == &target_id {
+                    incoming.push(LinkRef {
+                        source_id: ishoo.id.clone(),
+                        link_type: LinkType::BlockedBy,
+                        target_id: target_id.clone(),
+                    });
+                }
+            }
+        }
+
+        incoming.sort_by(|left, right| {
+            left.source_id
+                .cmp(&right.source_id)
+                .then_with(|| link_type_rank(left.link_type).cmp(&link_type_rank(right.link_type)))
+                .then_with(|| left.target_id.cmp(&right.target_id))
+        });
+        incoming
+    }
+
+    pub fn check_all_links(&self) -> LinkCheckResult {
+        let mut result = LinkCheckResult::default();
+        let mut seen_cycles = HashSet::new();
+
+        for ishoo in self.ishoos.values() {
+            for link in collect_links(ishoo) {
+                if link.source_id == link.target_id {
+                    result.self_links.push(link.clone());
+                    continue;
+                }
+
+                if !self.ishoos.contains_key(&link.target_id) {
+                    result.broken_links.push(link.clone());
+                    continue;
+                }
+
+                if let Some(path) =
+                    self.find_cycle_path(&link.source_id, link.link_type, &link.target_id)
+                {
+                    let path = canonical_cycle_path(&path);
+                    let key = cycle_key(link.link_type, &path);
+                    if seen_cycles.insert(key) {
+                        result.cycles.push(LinkCycle {
+                            link_type: link.link_type,
+                            path,
+                        });
+                    }
+                }
+            }
+        }
+
+        result.broken_links.sort_by(link_ref_cmp);
+        result.self_links.sort_by(link_ref_cmp);
+        result.cycles.sort_by(|left, right| {
+            link_type_rank(left.link_type)
+                .cmp(&link_type_rank(right.link_type))
+                .then_with(|| left.path.cmp(&right.path))
+        });
+
+        result
+    }
+
+    pub fn fix_broken_links(&mut self) -> Result<usize, StoreError> {
+        let existing_ids = self.ishoos.keys().cloned().collect::<HashSet<_>>();
+        let mut dirty_ids = Vec::new();
+        let mut fixed_count = 0;
+
+        for (id, ishoo) in &mut self.ishoos {
+            let mut dirty = false;
+
+            if let Some(parent) = ishoo.parent.as_deref()
+                && (parent == id.as_str() || !existing_ids.contains(parent))
+            {
+                ishoo.parent = None;
+                dirty = true;
+                fixed_count += 1;
+            }
+
+            let blocking_before = ishoo.blocking.len();
+            ishoo
+                .blocking
+                .retain(|target| target != id && existing_ids.contains(target));
+            let removed_blocking = blocking_before - ishoo.blocking.len();
+            if removed_blocking > 0 {
+                dirty = true;
+                fixed_count += removed_blocking;
+            }
+
+            let blocked_by_before = ishoo.blocked_by.len();
+            ishoo
+                .blocked_by
+                .retain(|target| target != id && existing_ids.contains(target));
+            let removed_blocked_by = blocked_by_before - ishoo.blocked_by.len();
+            if removed_blocked_by > 0 {
+                dirty = true;
+                fixed_count += removed_blocked_by;
+            }
+
+            if dirty {
+                ishoo.updated_at = Utc::now();
+                dirty_ids.push(id.clone());
+            }
+        }
+
+        for dirty_id in dirty_ids {
+            let ishoo = self
+                .ishoos
+                .get(&dirty_id)
+                .ok_or_else(|| StoreError::NotFound(dirty_id.clone()))?
+                .clone();
+            self.save_to_disk(&ishoo)?;
+        }
+
+        Ok(fixed_count)
+    }
+
     fn load_dir(&mut self, dir: &Path) -> Result<(), StoreError> {
         for entry in fs::read_dir(dir).map_err(StoreError::Io)? {
             let entry = entry.map_err(StoreError::Io)?;
@@ -561,6 +731,53 @@ impl Store {
             Err(StoreError::InvalidPriority(priority.to_string()))
         }
     }
+
+    fn find_cycle_path(
+        &self,
+        from_id: &str,
+        link_type: LinkType,
+        to_id: &str,
+    ) -> Option<Vec<String>> {
+        let from_id = self.normalize_id(from_id);
+        let to_id = self.normalize_id(to_id);
+
+        if from_id == to_id {
+            return Some(vec![from_id.clone(), from_id]);
+        }
+
+        let mut stack = vec![(to_id.clone(), vec![from_id.clone(), to_id.clone()])];
+        let mut visited = HashSet::from([to_id]);
+
+        while let Some((current_id, path)) = stack.pop() {
+            for next_id in self.link_targets(&current_id, link_type) {
+                if next_id == from_id {
+                    let mut cycle = path.clone();
+                    cycle.push(from_id.clone());
+                    return Some(cycle);
+                }
+
+                if visited.insert(next_id.clone()) {
+                    let mut next_path = path.clone();
+                    next_path.push(next_id.clone());
+                    stack.push((next_id, next_path));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn link_targets(&self, id: &str, link_type: LinkType) -> Vec<String> {
+        let Some(ishoo) = self.ishoos.get(id) else {
+            return Vec::new();
+        };
+
+        match link_type {
+            LinkType::Parent => ishoo.parent.iter().cloned().collect(),
+            LinkType::Blocking => ishoo.blocking.clone(),
+            LinkType::BlockedBy => ishoo.blocked_by.clone(),
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -643,6 +860,85 @@ fn retain_without(values: &mut Vec<String>, removed_id: &str) -> bool {
     values.len() != original_len
 }
 
+fn collect_links(ishoo: &Ishoo) -> Vec<LinkRef> {
+    let mut links = Vec::new();
+
+    if let Some(parent) = &ishoo.parent {
+        links.push(LinkRef {
+            source_id: ishoo.id.clone(),
+            link_type: LinkType::Parent,
+            target_id: parent.clone(),
+        });
+    }
+
+    for target_id in &ishoo.blocking {
+        links.push(LinkRef {
+            source_id: ishoo.id.clone(),
+            link_type: LinkType::Blocking,
+            target_id: target_id.clone(),
+        });
+    }
+
+    for target_id in &ishoo.blocked_by {
+        links.push(LinkRef {
+            source_id: ishoo.id.clone(),
+            link_type: LinkType::BlockedBy,
+            target_id: target_id.clone(),
+        });
+    }
+
+    links
+}
+
+fn cycle_key(link_type: LinkType, path: &[String]) -> String {
+    let nodes = canonical_cycle_nodes(path);
+    format!("{}:{}", link_type_rank(link_type), nodes.join("->"))
+}
+
+fn canonical_cycle_path(path: &[String]) -> Vec<String> {
+    let mut nodes = canonical_cycle_nodes(path);
+    if let Some(first) = nodes.first().cloned() {
+        nodes.push(first);
+    }
+    nodes
+}
+
+fn canonical_cycle_nodes(path: &[String]) -> Vec<String> {
+    let nodes = &path[..path.len().saturating_sub(1)];
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut best = nodes.to_vec();
+    for start in 1..nodes.len() {
+        let rotated = nodes[start..]
+            .iter()
+            .chain(nodes[..start].iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        if rotated < best {
+            best = rotated;
+        }
+    }
+
+    best
+}
+
+fn link_type_rank(link_type: LinkType) -> usize {
+    match link_type {
+        LinkType::Parent => 0,
+        LinkType::Blocking => 1,
+        LinkType::BlockedBy => 2,
+    }
+}
+
+fn link_ref_cmp(left: &LinkRef, right: &LinkRef) -> std::cmp::Ordering {
+    left.source_id
+        .cmp(&right.source_id)
+        .then_with(|| link_type_rank(left.link_type).cmp(&link_type_rank(right.link_type)))
+        .then_with(|| left.target_id.cmp(&right.target_id))
+}
+
 fn default_string(value: String, fallback: &str) -> String {
     if value.trim().is_empty() {
         fallback.to_string()
@@ -691,7 +987,10 @@ fn split_frontmatter(content: &str) -> Option<(String, String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CreateIshoo, GITIGNORE_CONTENTS, Store, StoreError, UpdateIshoo};
+    use super::{
+        CreateIshoo, GITIGNORE_CONTENTS, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store,
+        StoreError, UpdateIshoo,
+    };
     use crate::config::Config;
     use chrono::{TimeZone, Utc};
     use std::fs;
@@ -1144,6 +1443,184 @@ mod tests {
         assert!(ref_ishoo.blocked_by.is_empty());
         assert!(!ref_contents.contains("parent: ish-target"));
         assert!(!ref_contents.contains("- ish-target"));
+    }
+
+    #[test]
+    fn detect_cycle_finds_cycles_per_link_type() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-a--a.md"),
+            "---\n# ish-a\ntitle: A\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-b\n---\n\nA body.\n",
+        )
+        .expect("a file should be written");
+        fs::write(
+            root.join("ish-b--b.md"),
+            "---\n# ish-b\ntitle: B\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-c\n---\n\nB body.\n",
+        )
+        .expect("b file should be written");
+        fs::write(
+            root.join("ish-c--c.md"),
+            "---\n# ish-c\ntitle: C\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nC body.\n",
+        )
+        .expect("c file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert!(store.detect_cycle("ish-c", LinkType::Blocking, "ish-a"));
+        assert!(!store.detect_cycle("ish-c", LinkType::BlockedBy, "ish-a"));
+    }
+
+    #[test]
+    fn find_incoming_links_returns_all_matching_link_types() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-target--target.md"),
+            "---\n# ish-target\ntitle: Target\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nTarget body.\n",
+        )
+        .expect("target file should be written");
+        fs::write(
+            root.join("ish-parented--parented.md"),
+            "---\n# ish-parented\ntitle: Parented\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-target\n---\n\nParented body.\n",
+        )
+        .expect("parented file should be written");
+        fs::write(
+            root.join("ish-blocker--blocker.md"),
+            "---\n# ish-blocker\ntitle: Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nBlocker body.\n",
+        )
+        .expect("blocker file should be written");
+        fs::write(
+            root.join("ish-blocked--blocked.md"),
+            "---\n# ish-blocked\ntitle: Blocked\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n  - ish-target\n---\n\nBlocked body.\n",
+        )
+        .expect("blocked file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.find_incoming_links("target"),
+            vec![
+                LinkRef {
+                    source_id: "ish-blocked".to_string(),
+                    link_type: LinkType::BlockedBy,
+                    target_id: "ish-target".to_string(),
+                },
+                LinkRef {
+                    source_id: "ish-blocker".to_string(),
+                    link_type: LinkType::Blocking,
+                    target_id: "ish-target".to_string(),
+                },
+                LinkRef {
+                    source_id: "ish-parented".to_string(),
+                    link_type: LinkType::Parent,
+                    target_id: "ish-target".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn check_all_links_reports_broken_self_and_cycle_links() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-a--a.md"),
+            "---\n# ish-a\ntitle: A\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-b\n---\n\nA body.\n",
+        )
+        .expect("a file should be written");
+        fs::write(
+            root.join("ish-b--b.md"),
+            "---\n# ish-b\ntitle: B\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-c\n---\n\nB body.\n",
+        )
+        .expect("b file should be written");
+        fs::write(
+            root.join("ish-c--c.md"),
+            "---\n# ish-c\ntitle: C\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-a\n---\n\nC body.\n",
+        )
+        .expect("c file should be written");
+        fs::write(
+            root.join("ish-bad--bad.md"),
+            "---\n# ish-bad\ntitle: Bad\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-missing\nblocking:\n  - ish-bad\nblocked_by:\n  - ish-missing-two\n---\n\nBad body.\n",
+        )
+        .expect("bad file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.check_all_links(),
+            LinkCheckResult {
+                broken_links: vec![
+                    LinkRef {
+                        source_id: "ish-bad".to_string(),
+                        link_type: LinkType::Parent,
+                        target_id: "ish-missing".to_string(),
+                    },
+                    LinkRef {
+                        source_id: "ish-bad".to_string(),
+                        link_type: LinkType::BlockedBy,
+                        target_id: "ish-missing-two".to_string(),
+                    },
+                ],
+                self_links: vec![LinkRef {
+                    source_id: "ish-bad".to_string(),
+                    link_type: LinkType::Blocking,
+                    target_id: "ish-bad".to_string(),
+                }],
+                cycles: vec![LinkCycle {
+                    link_type: LinkType::Blocking,
+                    path: vec![
+                        "ish-a".to_string(),
+                        "ish-b".to_string(),
+                        "ish-c".to_string(),
+                        "ish-a".to_string(),
+                    ],
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn fix_broken_links_removes_invalid_references_and_saves_files() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-valid--valid.md"),
+            "---\n# ish-valid\ntitle: Valid\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nValid body.\n",
+        )
+        .expect("valid file should be written");
+        fs::write(
+            root.join("ish-bad--bad.md"),
+            "---\n# ish-bad\ntitle: Bad\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-bad\nblocking:\n  - ish-valid\n  - ish-bad\n  - ish-missing\nblocked_by:\n  - ish-bad\n  - ish-missing-two\n---\n\nBad body.\n",
+        )
+        .expect("bad file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let fixed = store
+            .fix_broken_links()
+            .expect("fixing broken links should succeed");
+        let ishoo = store.get("ish-bad").expect("bad ishoo should exist");
+        let contents =
+            fs::read_to_string(root.join("ish-bad--bad.md")).expect("bad file should still exist");
+
+        assert_eq!(fixed, 5);
+        assert!(ishoo.parent.is_none());
+        assert_eq!(ishoo.blocking, vec!["ish-valid"]);
+        assert!(ishoo.blocked_by.is_empty());
+        assert!(!contents.contains("parent: ish-bad"));
+        assert!(contents.contains("- ish-valid"));
+        assert!(!contents.contains("- ish-missing"));
+        assert!(!contents.contains("- ish-bad"));
+        assert!(!contents.contains("- ish-missing-two"));
     }
 
     fn write_ishoo(
