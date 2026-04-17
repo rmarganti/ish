@@ -20,3 +20,8 @@ target
 .dolt/
 *.db
 .beads-credential-key
+
+
+# Added by cargo
+
+/target
