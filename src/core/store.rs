@@ -1,5 +1,7 @@
 use crate::config::Config;
-use crate::model::ishoo::Ishoo;
+use crate::model::ishoo::{
+    BodyError, Ishoo, append_with_separator, build_filename, new_id, replace_once, slugify,
+};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -23,11 +25,52 @@ pub enum StoreError {
     Io(std::io::Error),
     InvalidPath(PathBuf),
     InvalidFrontmatter(PathBuf),
+    InvalidStatus(String),
+    InvalidType(String),
+    InvalidPriority(String),
+    InvalidTag(String),
     NotFound(String),
+    ETagMismatch {
+        expected: String,
+        actual: String,
+    },
+    Body(BodyError),
     Yaml {
         path: PathBuf,
         source: serde_yaml::Error,
     },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CreateIshoo {
+    pub title: String,
+    pub status: Option<String>,
+    pub ishoo_type: Option<String>,
+    pub priority: Option<String>,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub parent: Option<String>,
+    pub blocking: Vec<String>,
+    pub blocked_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UpdateIshoo {
+    pub status: Option<String>,
+    pub ishoo_type: Option<String>,
+    pub priority: Option<Option<String>>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub body_replace: Option<(String, String)>,
+    pub body_append: Option<String>,
+    pub add_tags: Vec<String>,
+    pub remove_tags: Vec<String>,
+    pub parent: Option<Option<String>>,
+    pub add_blocking: Vec<String>,
+    pub remove_blocking: Vec<String>,
+    pub add_blocked_by: Vec<String>,
+    pub remove_blocked_by: Vec<String>,
+    pub if_match: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -87,6 +130,197 @@ impl Store {
         self.ishoos
             .get(id)
             .or_else(|| self.ishoos.get(&self.normalize_id(id)))
+    }
+
+    pub fn create(&mut self, input: CreateIshoo) -> Result<Ishoo, StoreError> {
+        let status = input
+            .status
+            .unwrap_or_else(|| self.config.ish.default_status.clone());
+        let ishoo_type = input
+            .ishoo_type
+            .unwrap_or_else(|| self.config.ish.default_type.clone());
+        let priority = input.priority.or_else(|| Some("normal".to_string()));
+
+        self.validate_status(&status)?;
+        self.validate_type(&ishoo_type)?;
+        if let Some(priority_name) = priority.as_deref() {
+            self.validate_priority(priority_name)?;
+        }
+
+        let id = self.generate_unique_id();
+        let slug = slugify(&input.title);
+        let path = build_filename(&id, &slug);
+        let now = Utc::now();
+        let mut ishoo = Ishoo {
+            id: id.clone(),
+            slug,
+            path,
+            title: input.title,
+            status,
+            ishoo_type,
+            priority,
+            tags: Vec::new(),
+            created_at: now,
+            updated_at: now,
+            order: None,
+            body: input.body,
+            parent: input.parent.map(|parent| self.normalize_id(&parent)),
+            blocking: normalize_ids(self, input.blocking),
+            blocked_by: normalize_ids(self, input.blocked_by),
+        };
+
+        for tag in input.tags {
+            ishoo
+                .add_tag(&tag)
+                .map_err(|_| StoreError::InvalidTag(tag.clone()))?;
+        }
+
+        self.save_to_disk(&ishoo)?;
+        self.ishoos.insert(id, ishoo.clone());
+        Ok(ishoo)
+    }
+
+    pub fn update(&mut self, id: &str, changes: UpdateIshoo) -> Result<Ishoo, StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let current = self
+            .ishoos
+            .get(&normalized_id)
+            .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
+            .clone();
+
+        if let Some(if_match) = changes.if_match.as_deref() {
+            let actual = current.etag();
+            if if_match != actual {
+                return Err(StoreError::ETagMismatch {
+                    expected: if_match.to_string(),
+                    actual,
+                });
+            }
+        }
+
+        let mut updated = current.clone();
+
+        if let Some(status) = changes.status {
+            self.validate_status(&status)?;
+            updated.status = status;
+        }
+
+        if let Some(ishoo_type) = changes.ishoo_type {
+            self.validate_type(&ishoo_type)?;
+            updated.ishoo_type = ishoo_type;
+        }
+
+        if let Some(priority) = changes.priority {
+            if let Some(priority_name) = priority.as_deref() {
+                self.validate_priority(priority_name)?;
+            }
+            updated.priority = priority;
+        }
+
+        if let Some(title) = changes.title {
+            updated.title = title;
+            updated.slug = slugify(&updated.title);
+            updated.path = build_filename(&updated.id, &updated.slug);
+        }
+
+        if let Some(body) = changes.body {
+            updated.body = body;
+        }
+
+        if let Some((old, new)) = changes.body_replace {
+            updated.body = replace_once(&updated.body, &old, &new).map_err(StoreError::Body)?;
+        }
+
+        if let Some(addition) = changes.body_append {
+            updated.body = append_with_separator(&updated.body, &addition);
+        }
+
+        for tag in changes.add_tags {
+            updated
+                .add_tag(&tag)
+                .map_err(|_| StoreError::InvalidTag(tag.clone()))?;
+        }
+
+        for tag in changes.remove_tags {
+            updated.remove_tag(&tag);
+        }
+
+        if let Some(parent) = changes.parent {
+            updated.parent = parent.map(|parent| self.normalize_id(&parent));
+        }
+
+        update_relation_list(
+            self,
+            &mut updated.blocking,
+            changes.add_blocking,
+            changes.remove_blocking,
+        );
+        update_relation_list(
+            self,
+            &mut updated.blocked_by,
+            changes.add_blocked_by,
+            changes.remove_blocked_by,
+        );
+
+        updated.updated_at = Utc::now();
+
+        let original_path = self.root.join(&current.path);
+        let updated_path = self.root.join(&updated.path);
+        if current.path != updated.path && original_path.exists() {
+            fs::rename(&original_path, &updated_path).map_err(StoreError::Io)?;
+        }
+
+        self.save_to_disk(&updated)?;
+        self.ishoos.insert(normalized_id, updated.clone());
+        Ok(updated)
+    }
+
+    pub fn delete(&mut self, id: &str) -> Result<Ishoo, StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let removed = self
+            .ishoos
+            .remove(&normalized_id)
+            .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?;
+
+        let path = self.root.join(&removed.path);
+        fs::remove_file(&path).map_err(StoreError::Io)?;
+
+        let mut dirty_ids = Vec::new();
+        for (other_id, other) in &mut self.ishoos {
+            let mut dirty = false;
+
+            if other.parent.as_deref() == Some(normalized_id.as_str()) {
+                other.parent = None;
+                dirty = true;
+            }
+
+            dirty |= retain_without(&mut other.blocking, &normalized_id);
+            dirty |= retain_without(&mut other.blocked_by, &normalized_id);
+
+            if dirty {
+                other.updated_at = Utc::now();
+                dirty_ids.push(other_id.clone());
+            }
+        }
+
+        for dirty_id in dirty_ids {
+            let ishoo = self
+                .ishoos
+                .get(&dirty_id)
+                .ok_or_else(|| StoreError::NotFound(dirty_id.clone()))?
+                .clone();
+            self.save_to_disk(&ishoo)?;
+        }
+
+        Ok(removed)
+    }
+
+    pub fn save_to_disk(&self, ishoo: &Ishoo) -> Result<(), StoreError> {
+        let path = self.root.join(&ishoo.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(StoreError::Io)?;
+        }
+        fs::write(path, ishoo.render()).map_err(StoreError::Io)
     }
 
     pub fn normalize_id(&self, id: &str) -> String {
@@ -294,6 +528,39 @@ impl Store {
 
         Err(StoreError::NotFound(id.to_string()))
     }
+
+    fn generate_unique_id(&self) -> String {
+        loop {
+            let id = new_id(&self.config.ish.prefix, self.config.ish.id_length);
+            if !self.ishoos.contains_key(&id) {
+                return id;
+            }
+        }
+    }
+
+    fn validate_status(&self, status: &str) -> Result<(), StoreError> {
+        if self.config.is_valid_status(status) {
+            Ok(())
+        } else {
+            Err(StoreError::InvalidStatus(status.to_string()))
+        }
+    }
+
+    fn validate_type(&self, ishoo_type: &str) -> Result<(), StoreError> {
+        if self.config.is_valid_type(ishoo_type) {
+            Ok(())
+        } else {
+            Err(StoreError::InvalidType(ishoo_type.to_string()))
+        }
+    }
+
+    fn validate_priority(&self, priority: &str) -> Result<(), StoreError> {
+        if self.config.is_valid_priority(priority) {
+            Ok(())
+        } else {
+            Err(StoreError::InvalidPriority(priority.to_string()))
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -304,7 +571,15 @@ impl fmt::Display for StoreError {
             StoreError::InvalidFrontmatter(path) => {
                 write!(f, "invalid frontmatter in `{}`", path.display())
             }
+            StoreError::InvalidStatus(status) => write!(f, "invalid status: {status}"),
+            StoreError::InvalidType(ishoo_type) => write!(f, "invalid type: {ishoo_type}"),
+            StoreError::InvalidPriority(priority) => write!(f, "invalid priority: {priority}"),
+            StoreError::InvalidTag(tag) => write!(f, "invalid tag: {tag}"),
             StoreError::NotFound(id) => write!(f, "ishoo not found: {id}"),
+            StoreError::ETagMismatch { expected, actual } => {
+                write!(f, "etag mismatch: expected {expected}, actual {actual}")
+            }
+            StoreError::Body(error) => write!(f, "body update failed: {error}"),
             StoreError::Yaml { path, source } => {
                 write!(f, "failed to parse YAML in `{}`: {source}", path.display())
             }
@@ -316,12 +591,56 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             StoreError::Io(error) => Some(error),
+            StoreError::Body(error) => Some(error),
             StoreError::Yaml { source, .. } => Some(source),
             StoreError::InvalidPath(_)
             | StoreError::InvalidFrontmatter(_)
-            | StoreError::NotFound(_) => None,
+            | StoreError::InvalidStatus(_)
+            | StoreError::InvalidType(_)
+            | StoreError::InvalidPriority(_)
+            | StoreError::InvalidTag(_)
+            | StoreError::NotFound(_)
+            | StoreError::ETagMismatch { .. } => None,
         }
     }
+}
+
+fn normalize_ids(store: &Store, ids: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for id in ids {
+        let id = store.normalize_id(&id);
+        if !normalized.iter().any(|existing| existing == &id) {
+            normalized.push(id);
+        }
+    }
+
+    normalized
+}
+
+fn update_relation_list(
+    store: &Store,
+    values: &mut Vec<String>,
+    additions: Vec<String>,
+    removals: Vec<String>,
+) {
+    for id in additions {
+        let normalized = store.normalize_id(&id);
+        if !values.iter().any(|existing| existing == &normalized) {
+            values.push(normalized);
+        }
+    }
+
+    for id in removals {
+        let normalized = store.normalize_id(&id);
+        values.retain(|existing| existing != &normalized);
+    }
+}
+
+fn retain_without(values: &mut Vec<String>, removed_id: &str) -> bool {
+    let original_len = values.len();
+    values.retain(|value| value != removed_id);
+    values.len() != original_len
 }
 
 fn default_string(value: String, fallback: &str) -> String {
@@ -372,7 +691,7 @@ fn split_frontmatter(content: &str) -> Option<(String, String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GITIGNORE_CONTENTS, Store};
+    use super::{CreateIshoo, GITIGNORE_CONTENTS, Store, StoreError, UpdateIshoo};
     use crate::config::Config;
     use chrono::{TimeZone, Utc};
     use std::fs;
@@ -657,6 +976,174 @@ mod tests {
                 .path,
             "archive/ish-nope--scrapped.md"
         );
+    }
+
+    #[test]
+    fn create_writes_new_ishoo_to_disk_and_store() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+
+        let created = store
+            .create(CreateIshoo {
+                title: "Create store record".to_string(),
+                status: None,
+                ishoo_type: Some("bug".to_string()),
+                priority: Some("high".to_string()),
+                body: "Created body.".to_string(),
+                tags: vec!["Backend".to_string(), "backend".to_string()],
+                parent: Some("parent".to_string()),
+                blocking: vec!["dep1".to_string(), "dep1".to_string()],
+                blocked_by: vec!["dep2".to_string()],
+            })
+            .expect("create should succeed");
+
+        let file_path = root.join(&created.path);
+        let file_contents = fs::read_to_string(&file_path).expect("created file should exist");
+
+        assert!(created.id.starts_with("ish-"));
+        assert_eq!(created.slug, "create-store-record");
+        assert_eq!(created.status, "todo");
+        assert_eq!(created.ishoo_type, "bug");
+        assert_eq!(created.priority.as_deref(), Some("high"));
+        assert_eq!(created.tags, vec!["backend"]);
+        assert_eq!(created.parent.as_deref(), Some("ish-parent"));
+        assert_eq!(created.blocking, vec!["ish-dep1"]);
+        assert_eq!(created.blocked_by, vec!["ish-dep2"]);
+        assert!(file_contents.contains("title: Create store record"));
+        assert!(file_contents.contains("Created body."));
+        assert_eq!(
+            store.get(&created.id).expect("created ishoo should exist"),
+            &created
+        );
+    }
+
+    #[test]
+    fn update_applies_field_changes_and_renames_file() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let original_path = root.join("ish-abcd--old-title.md");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &original_path,
+            "ish-abcd",
+            "Old title",
+            "todo",
+            "task",
+            Some("normal"),
+            "alpha target omega",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+        let etag = store.get("ish-abcd").expect("ishoo should exist").etag();
+
+        let updated = store
+            .update(
+                "abcd",
+                UpdateIshoo {
+                    status: Some("in-progress".to_string()),
+                    ishoo_type: Some("feature".to_string()),
+                    priority: Some(Some("critical".to_string())),
+                    title: Some("New title".to_string()),
+                    body: None,
+                    body_replace: Some(("target".to_string(), "updated".to_string())),
+                    body_append: Some("appended text".to_string()),
+                    add_tags: vec!["cli".to_string()],
+                    remove_tags: Vec::new(),
+                    parent: Some(Some("parent".to_string())),
+                    add_blocking: vec!["child".to_string()],
+                    remove_blocking: Vec::new(),
+                    add_blocked_by: vec!["dep".to_string()],
+                    remove_blocked_by: Vec::new(),
+                    if_match: Some(etag),
+                },
+            )
+            .expect("update should succeed");
+
+        let renamed_path = root.join("ish-abcd--new-title.md");
+        let file_contents = fs::read_to_string(&renamed_path).expect("renamed file should exist");
+
+        assert!(!original_path.exists());
+        assert!(renamed_path.exists());
+        assert_eq!(updated.status, "in-progress");
+        assert_eq!(updated.ishoo_type, "feature");
+        assert_eq!(updated.priority.as_deref(), Some("critical"));
+        assert_eq!(updated.slug, "new-title");
+        assert_eq!(updated.path, "ish-abcd--new-title.md");
+        assert_eq!(updated.tags, vec!["cli"]);
+        assert_eq!(updated.parent.as_deref(), Some("ish-parent"));
+        assert_eq!(updated.blocking, vec!["ish-child"]);
+        assert_eq!(updated.blocked_by, vec!["ish-dep"]);
+        assert_eq!(updated.body, "alpha updated omega\n\nappended text");
+        assert!(file_contents.contains("alpha updated omega"));
+        assert!(file_contents.contains("appended text"));
+    }
+
+    #[test]
+    fn update_rejects_etag_mismatch() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-abcd--etag.md"),
+            "ish-abcd",
+            "ETag",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let error = store
+            .update(
+                "ish-abcd",
+                UpdateIshoo {
+                    title: Some("Other".to_string()),
+                    if_match: Some("deadbeefdeadbeef".to_string()),
+                    ..UpdateIshoo::default()
+                },
+            )
+            .expect_err("update should fail on mismatched etag");
+
+        assert!(matches!(error, StoreError::ETagMismatch { .. }));
+    }
+
+    #[test]
+    fn delete_removes_file_and_cleans_incoming_references() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-target--target.md"),
+            "---\n# ish-target\ntitle: Target\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nTarget body.\n",
+        )
+        .expect("target file should be written");
+        fs::write(
+            root.join("ish-ref--ref.md"),
+            "---\n# ish-ref\ntitle: Ref\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-target\nblocking:\n  - ish-target\nblocked_by:\n  - ish-target\n---\n\nRef body.\n",
+        )
+        .expect("ref file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let removed = store.delete("target").expect("delete should succeed");
+        let ref_ishoo = store.get("ish-ref").expect("ref should remain");
+        let ref_contents =
+            fs::read_to_string(root.join("ish-ref--ref.md")).expect("ref file should still exist");
+
+        assert_eq!(removed.id, "ish-target");
+        assert!(!root.join("ish-target--target.md").exists());
+        assert!(ref_ishoo.parent.is_none());
+        assert!(ref_ishoo.blocking.is_empty());
+        assert!(ref_ishoo.blocked_by.is_empty());
+        assert!(!ref_contents.contains("parent: ish-target"));
+        assert!(!ref_contents.contains("- ish-target"));
     }
 
     fn write_ishoo(
