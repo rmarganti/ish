@@ -174,3 +174,192 @@ fn link_type_label(link_type: LinkType) -> &'static str {
         LinkType::BlockedBy => "blocked_by",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::show_command;
+    use crate::cli::ShowArgs;
+    use crate::config::Config;
+    use crate::test_support::{TestDir, WorkingDirGuard, write_test_ishoo};
+    use serde_json::Value;
+    use std::fs;
+
+    #[test]
+    fn show_command_supports_json_raw_body_and_etag_output() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &["context"],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "todo",
+            "task",
+            Some("high"),
+            "Blocker body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-target",
+            "Target",
+            "todo",
+            "task",
+            Some("normal"),
+            "# Heading\n\nBody text.",
+            Some("ish-parent"),
+            &["ish-blocker"],
+            &[],
+            &["cli", "show"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let json_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: false,
+            },
+            true,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        let parsed: Value = serde_json::from_str(&json_output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["count"], Value::from(1));
+        assert_eq!(parsed["ishoos"][0]["id"], "ish-target");
+        assert_eq!(parsed["ishoos"][0]["parent"], "ish-parent");
+        assert_eq!(parsed["ishoos"][0]["blocking"][0], "ish-blocker");
+        assert!(parsed["ishoos"][0].get("etag").is_some());
+
+        let raw_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: true,
+                body_only: false,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert!(raw_output.starts_with("---\n# ish-target"));
+        assert!(raw_output.contains("title: Target"));
+
+        let body_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: true,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert_eq!(body_output, "# Heading\n\nBody text.");
+
+        let etag_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: true,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert_eq!(etag_output.len(), 16);
+        assert!(etag_output.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn show_command_human_output_renders_header_relationships_and_separator() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "completed",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "todo",
+            "task",
+            Some("high"),
+            "Blocker body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-child",
+            "Child",
+            "todo",
+            "task",
+            Some("normal"),
+            "Child body.",
+            Some("ish-parent"),
+            &["ish-blocker"],
+            &[],
+            &["demo"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = show_command(
+            ShowArgs {
+                ids: vec!["child".to_string(), "parent".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+
+        assert!(output.contains("ish-child"));
+        assert!(output.contains("Path: ish-child--child.md"));
+        assert!(output.contains("Parent: ish-parent"));
+        assert!(output.contains("Blocking: ish-blocker"));
+        assert!(output.contains("Inherited status: completed from ish-parent"));
+        assert!(output.contains("#demo"));
+        assert!(output.contains("Child body."));
+        assert!(output.contains("════════"));
+    }
+}

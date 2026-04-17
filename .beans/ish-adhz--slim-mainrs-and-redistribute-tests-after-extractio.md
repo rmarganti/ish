@@ -1,11 +1,11 @@
 ---
 # ish-adhz
 title: Slim main.rs and redistribute tests after extraction
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-04-17T19:01:52Z
-updated_at: 2026-04-17T19:02:06Z
+updated_at: 2026-04-17T19:37:24Z
 parent: ish-hqty
 blocked_by:
     - ish-ywbj
@@ -33,13 +33,21 @@ Desired end state:
 
 ## Success Criteria
 
-- [ ] `src/main.rs` is small enough to read top-to-bottom quickly.
-- [ ] Most tests live near the code they exercise.
-- [ ] No new god-file has replaced `src/main.rs`.
+- [x] `src/main.rs` is small enough to read top-to-bottom quickly.
+- [x] Most tests live near the code they exercise.
+- [x] No new god-file has replaced `src/main.rs`.
 
 ## Verification
 
-- [ ] `cargo test`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy -- -D warnings`
-- [ ] Manual spot-check: opening `src/main.rs` shows bootstrap only, not feature logic.
+- [x] `cargo test`
+- [x] `cargo fmt --all -- --check`
+- [x] `cargo clippy -- -D warnings`
+- [x] Manual spot-check: opening `src/main.rs` shows bootstrap only, not feature logic.
+
+## Summary of Changes
+
+- Reduced `src/main.rs` to module declarations plus the CLI bootstrap path only.
+- Moved the oversized `main.rs` test coverage into feature-local `#[cfg(test)]` modules across `src/app/`, `src/cli/`, and the relevant `src/commands/*` files.
+- Added `src/test_support.rs` for shared temp-dir / working-directory / fixture helpers so test setup stays localized without rebuilding another god-file.
+- Ran the full feedback loop successfully (`cargo test`, `cargo fmt --all -- --check`, `cargo clippy -- -D warnings`).
+- Note for future workers: run the feedback loop sequentially; a parallel `cargo test` + `cargo clippy` invocation briefly exposed a temp-dir test failure even though the standard sequential loop passes.
