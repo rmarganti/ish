@@ -114,6 +114,40 @@ pub enum ParseError {
     Yaml(serde_yaml::Error),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagError {
+    InvalidTag,
+}
+
+impl fmt::Display for TagError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TagError::InvalidTag => write!(f, "invalid tag format"),
+        }
+    }
+}
+
+impl std::error::Error for TagError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BodyError {
+    EmptyNeedle,
+    NotFound,
+    MultipleMatches,
+}
+
+impl fmt::Display for BodyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BodyError::EmptyNeedle => write!(f, "replacement text cannot be empty"),
+            BodyError::NotFound => write!(f, "replacement target not found"),
+            BodyError::MultipleMatches => write!(f, "replacement target matched multiple times"),
+        }
+    }
+}
+
+impl std::error::Error for BodyError {}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -251,6 +285,126 @@ impl Ishoo {
             etag: etag.to_string(),
         }
     }
+
+    pub fn has_tag(&self, tag: &str) -> bool {
+        let normalized = normalize_tag(tag);
+        self.tags.iter().any(|existing| existing == &normalized)
+    }
+
+    pub fn add_tag(&mut self, tag: &str) -> Result<bool, TagError> {
+        let normalized = normalize_tag(tag);
+
+        if !validate_tag(&normalized) {
+            return Err(TagError::InvalidTag);
+        }
+
+        if self.tags.iter().any(|existing| existing == &normalized) {
+            return Ok(false);
+        }
+
+        self.tags.push(normalized);
+        Ok(true)
+    }
+
+    pub fn remove_tag(&mut self, tag: &str) -> bool {
+        let normalized = normalize_tag(tag);
+        let original_len = self.tags.len();
+        self.tags.retain(|existing| existing != &normalized);
+        self.tags.len() != original_len
+    }
+}
+
+pub fn validate_tag(tag: &str) -> bool {
+    let mut chars = tag.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    if !first.is_ascii_lowercase() {
+        return false;
+    }
+
+    let mut previous_was_hyphen = false;
+
+    for ch in chars {
+        if ch == '-' {
+            if previous_was_hyphen {
+                return false;
+            }
+
+            previous_was_hyphen = true;
+            continue;
+        }
+
+        if !ch.is_ascii_lowercase() && !ch.is_ascii_digit() {
+            return false;
+        }
+
+        previous_was_hyphen = false;
+    }
+
+    !previous_was_hyphen
+}
+
+pub fn normalize_tag(tag: &str) -> String {
+    tag.trim().to_ascii_lowercase()
+}
+
+pub fn replace_once(text: &str, old: &str, new: &str) -> Result<String, BodyError> {
+    if old.is_empty() {
+        return Err(BodyError::EmptyNeedle);
+    }
+
+    let Some(first_match) = text.find(old) else {
+        return Err(BodyError::NotFound);
+    };
+
+    if text[first_match + old.len()..].contains(old) {
+        return Err(BodyError::MultipleMatches);
+    }
+
+    let mut replaced = String::with_capacity(text.len() - old.len() + new.len());
+    replaced.push_str(&text[..first_match]);
+    replaced.push_str(new);
+    replaced.push_str(&text[first_match + old.len()..]);
+    Ok(replaced)
+}
+
+pub fn unescape_body(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            result.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some('n') => result.push('\n'),
+            Some('t') => result.push('\t'),
+            Some('\\') => result.push('\\'),
+            Some(other) => {
+                result.push('\\');
+                result.push(other);
+            }
+            None => result.push('\\'),
+        }
+    }
+
+    result
+}
+
+pub fn append_with_separator(text: &str, addition: &str) -> String {
+    if text.is_empty() {
+        return addition.to_string();
+    }
+
+    if addition.is_empty() {
+        return text.to_string();
+    }
+
+    format!("{text}\n\n{addition}")
 }
 
 /// Split a file's content into `(id, yaml, body)`.
@@ -714,5 +868,111 @@ updated_at: 2026-01-01T00:00:00Z
         let second = Ishoo::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("second parse");
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn test_validate_tag_accepts_expected_format() {
+        assert!(validate_tag("release-2026"));
+    }
+
+    #[test]
+    fn test_validate_tag_rejects_invalid_formats() {
+        assert!(!validate_tag(""));
+        assert!(!validate_tag("Release"));
+        assert!(!validate_tag("1release"));
+        assert!(!validate_tag("release--candidate"));
+        assert!(!validate_tag("release-"));
+        assert!(!validate_tag("release_candidate"));
+    }
+
+    #[test]
+    fn test_normalize_tag_trims_and_lowercases() {
+        assert_eq!(normalize_tag("  Release-2026  "), "release-2026");
+    }
+
+    #[test]
+    fn test_has_tag_uses_normalized_lookup() {
+        let ishoo = sample_ishoo();
+
+        assert!(ishoo.has_tag(" UI "));
+        assert!(!ishoo.has_tag("backend"));
+    }
+
+    #[test]
+    fn test_add_tag_normalizes_and_avoids_duplicates() {
+        let mut ishoo = sample_ishoo();
+
+        assert_eq!(ishoo.add_tag("  Backend  "), Ok(true));
+        assert_eq!(ishoo.add_tag("backend"), Ok(false));
+        assert_eq!(ishoo.tags, vec!["ui", "regression", "backend"]);
+    }
+
+    #[test]
+    fn test_add_tag_rejects_invalid_values() {
+        let mut ishoo = sample_ishoo();
+
+        assert_eq!(ishoo.add_tag("Not Valid"), Err(TagError::InvalidTag));
+    }
+
+    #[test]
+    fn test_remove_tag_uses_normalized_lookup() {
+        let mut ishoo = sample_ishoo();
+
+        assert!(ishoo.remove_tag(" REGRESSION "));
+        assert!(!ishoo.remove_tag("backend"));
+        assert_eq!(ishoo.tags, vec!["ui"]);
+    }
+
+    #[test]
+    fn test_replace_once_replaces_single_match() {
+        assert_eq!(
+            replace_once("before target after", "target", "updated"),
+            Ok("before updated after".to_string())
+        );
+    }
+
+    #[test]
+    fn test_replace_once_rejects_empty_needle() {
+        assert_eq!(replace_once("body", "", "new"), Err(BodyError::EmptyNeedle));
+    }
+
+    #[test]
+    fn test_replace_once_rejects_missing_match() {
+        assert_eq!(
+            replace_once("body", "target", "new"),
+            Err(BodyError::NotFound)
+        );
+    }
+
+    #[test]
+    fn test_replace_once_rejects_multiple_matches() {
+        assert_eq!(
+            replace_once("target and target", "target", "new"),
+            Err(BodyError::MultipleMatches)
+        );
+    }
+
+    #[test]
+    fn test_unescape_body_handles_supported_sequences() {
+        assert_eq!(
+            unescape_body(r"line 1\nline 2\tindent\\path"),
+            "line 1\nline 2\tindent\\path"
+        );
+    }
+
+    #[test]
+    fn test_unescape_body_preserves_unknown_sequences() {
+        assert_eq!(unescape_body(r"keep\xliteral\"), r"keep\xliteral\");
+    }
+
+    #[test]
+    fn test_append_with_separator_joins_non_empty_sections() {
+        assert_eq!(append_with_separator("first", "second"), "first\n\nsecond");
+    }
+
+    #[test]
+    fn test_append_with_separator_returns_non_empty_side() {
+        assert_eq!(append_with_separator("", "second"), "second");
+        assert_eq!(append_with_separator("first", ""), "first");
     }
 }
