@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const GITIGNORE_CONTENTS: &str = ".conversations/\n";
+const ARCHIVE_DIR_NAME: &str = "archive";
 
 #[derive(Debug)]
 pub struct Store {
@@ -22,6 +23,7 @@ pub enum StoreError {
     Io(std::io::Error),
     InvalidPath(PathBuf),
     InvalidFrontmatter(PathBuf),
+    NotFound(String),
     Yaml {
         path: PathBuf,
         source: serde_yaml::Error,
@@ -97,6 +99,93 @@ impl Store {
         }
     }
 
+    pub fn archive(&mut self, id: &str) -> Result<(), StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let source_path = self.ishoo_absolute_path(&normalized_id)?;
+        let file_name = source_path
+            .file_name()
+            .ok_or_else(|| StoreError::InvalidPath(source_path.clone()))?;
+        let archive_dir = self.root.join(ARCHIVE_DIR_NAME);
+        fs::create_dir_all(&archive_dir).map_err(StoreError::Io)?;
+        let destination_path = archive_dir.join(file_name);
+
+        fs::rename(&source_path, &destination_path).map_err(StoreError::Io)?;
+
+        let relative_path = self.relative_path(&destination_path)?;
+        self.ishoos
+            .get_mut(&normalized_id)
+            .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
+            .path = relative_path;
+        Ok(())
+    }
+
+    pub fn unarchive(&mut self, id: &str) -> Result<(), StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let source_path = self.ishoo_absolute_path(&normalized_id)?;
+        let file_name = source_path
+            .file_name()
+            .ok_or_else(|| StoreError::InvalidPath(source_path.clone()))?;
+        let destination_path = self.root.join(file_name);
+
+        fs::rename(&source_path, &destination_path).map_err(StoreError::Io)?;
+
+        let relative_path = self.relative_path(&destination_path)?;
+        self.ishoos
+            .get_mut(&normalized_id)
+            .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
+            .path = relative_path;
+        Ok(())
+    }
+
+    pub fn is_archived(&self, id: &str) -> Result<bool, StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let ishoo = self
+            .ishoos
+            .get(&normalized_id)
+            .ok_or(StoreError::NotFound(normalized_id))?;
+        Ok(ishoo.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/")))
+    }
+
+    pub fn load_and_unarchive(&mut self, id: &str) -> Result<(), StoreError> {
+        let normalized_id = self.normalize_id(id);
+
+        if self.ishoos.contains_key(&normalized_id) {
+            return self.unarchive(&normalized_id);
+        }
+
+        let archive_path = self.find_archived_path(&normalized_id)?;
+        let mut ishoo = self.load_ishoo(&archive_path)?;
+        let destination_path = self.root.join(
+            archive_path
+                .file_name()
+                .ok_or_else(|| StoreError::InvalidPath(archive_path.clone()))?,
+        );
+
+        fs::rename(&archive_path, &destination_path).map_err(StoreError::Io)?;
+
+        ishoo.path = self.relative_path(&destination_path)?;
+        self.ishoos.insert(ishoo.id.clone(), ishoo);
+        Ok(())
+    }
+
+    pub fn archive_all_completed(&mut self) -> Result<usize, StoreError> {
+        let ids_to_archive = self
+            .ishoos
+            .values()
+            .filter(|ishoo| {
+                self.config.is_archive_status(&ishoo.status)
+                    && !ishoo.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/"))
+            })
+            .map(|ishoo| ishoo.id.clone())
+            .collect::<Vec<_>>();
+
+        for id in &ids_to_archive {
+            self.archive(id)?;
+        }
+
+        Ok(ids_to_archive.len())
+    }
+
     fn load_dir(&mut self, dir: &Path) -> Result<(), StoreError> {
         for entry in fs::read_dir(dir).map_err(StoreError::Io)? {
             let entry = entry.map_err(StoreError::Io)?;
@@ -163,6 +252,48 @@ impl Store {
             blocked_by: fm.blocked_by,
         })
     }
+
+    fn ishoo_absolute_path(&self, id: &str) -> Result<PathBuf, StoreError> {
+        let ishoo = self
+            .ishoos
+            .get(id)
+            .ok_or_else(|| StoreError::NotFound(id.to_string()))?;
+        Ok(self.root.join(&ishoo.path))
+    }
+
+    fn relative_path(&self, path: &Path) -> Result<String, StoreError> {
+        let relative_path = path
+            .strip_prefix(&self.root)
+            .map_err(|_| StoreError::InvalidPath(path.to_path_buf()))?;
+        Ok(relative_path.to_string_lossy().replace('\\', "/"))
+    }
+
+    fn find_archived_path(&self, id: &str) -> Result<PathBuf, StoreError> {
+        let archive_dir = self.root.join(ARCHIVE_DIR_NAME);
+        if !archive_dir.is_dir() {
+            return Err(StoreError::NotFound(id.to_string()));
+        }
+
+        for entry in fs::read_dir(&archive_dir).map_err(StoreError::Io)? {
+            let entry = entry.map_err(StoreError::Io)?;
+            let path = entry.path();
+            if path.extension() != Some(OsStr::new("md")) {
+                continue;
+            }
+
+            let file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| StoreError::InvalidPath(path.clone()))?;
+            let (candidate_id, _) = crate::model::ishoo::parse_filename(file_name);
+
+            if candidate_id == id {
+                return Ok(path);
+            }
+        }
+
+        Err(StoreError::NotFound(id.to_string()))
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -173,6 +304,7 @@ impl fmt::Display for StoreError {
             StoreError::InvalidFrontmatter(path) => {
                 write!(f, "invalid frontmatter in `{}`", path.display())
             }
+            StoreError::NotFound(id) => write!(f, "ishoo not found: {id}"),
             StoreError::Yaml { path, source } => {
                 write!(f, "failed to parse YAML in `{}`: {source}", path.display())
             }
@@ -185,7 +317,9 @@ impl std::error::Error for StoreError {
         match self {
             StoreError::Io(error) => Some(error),
             StoreError::Yaml { source, .. } => Some(source),
-            StoreError::InvalidPath(_) | StoreError::InvalidFrontmatter(_) => None,
+            StoreError::InvalidPath(_)
+            | StoreError::InvalidFrontmatter(_)
+            | StoreError::NotFound(_) => None,
         }
     }
 }
@@ -388,6 +522,141 @@ mod tests {
 
         assert_eq!(store.normalize_id("abcd"), "ish-abcd");
         assert_eq!(store.normalize_id("ish-abcd"), "ish-abcd");
+    }
+
+    #[test]
+    fn archive_and_unarchive_move_files_and_update_store_paths() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let active_path = root.join("ish-abcd--active.md");
+        let archived_path = root.join("archive/ish-abcd--active.md");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &active_path,
+            "ish-abcd",
+            "Active",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        store.archive("abcd").expect("archive should succeed");
+
+        assert!(!active_path.exists());
+        assert!(archived_path.exists());
+        assert!(store.is_archived("ish-abcd").expect("ishoo should exist"));
+        assert_eq!(
+            store.get("ish-abcd").expect("ishoo should exist").path,
+            "archive/ish-abcd--active.md"
+        );
+
+        store
+            .unarchive("ish-abcd")
+            .expect("unarchive should succeed");
+
+        assert!(active_path.exists());
+        assert!(!archived_path.exists());
+        assert!(!store.is_archived("abcd").expect("ishoo should exist"));
+        assert_eq!(
+            store.get("ish-abcd").expect("ishoo should exist").path,
+            "ish-abcd--active.md"
+        );
+    }
+
+    #[test]
+    fn load_and_unarchive_restores_archived_file_into_store() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let archive_dir = root.join("archive");
+        let archived_path = archive_dir.join("ish-abcd--active.md");
+        let active_path = root.join("ish-abcd--active.md");
+
+        fs::create_dir_all(&archive_dir).expect("archive dir should exist");
+        write_ishoo(
+            &archived_path,
+            "ish-abcd",
+            "Active",
+            "completed",
+            "task",
+            Some("normal"),
+            "Body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+
+        store
+            .load_and_unarchive("abcd")
+            .expect("load and unarchive should succeed");
+
+        assert!(active_path.exists());
+        assert!(!archived_path.exists());
+        assert_eq!(
+            store.get("ish-abcd").expect("ishoo should be loaded").path,
+            "ish-abcd--active.md"
+        );
+    }
+
+    #[test]
+    fn archive_all_completed_moves_only_archive_statuses() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+
+        fs::create_dir_all(&root).expect("root dir should exist");
+        write_ishoo(
+            &root.join("ish-todo--active.md"),
+            "ish-todo",
+            "Todo",
+            "todo",
+            "task",
+            Some("normal"),
+            "Todo body.",
+        );
+        write_ishoo(
+            &root.join("ish-done--completed.md"),
+            "ish-done",
+            "Done",
+            "completed",
+            "task",
+            Some("normal"),
+            "Done body.",
+        );
+        write_ishoo(
+            &root.join("ish-nope--scrapped.md"),
+            "ish-nope",
+            "Nope",
+            "scrapped",
+            "task",
+            Some("normal"),
+            "Nope body.",
+        );
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        let archived_count = store
+            .archive_all_completed()
+            .expect("bulk archive should succeed");
+
+        assert_eq!(archived_count, 2);
+        assert!(root.join("ish-todo--active.md").exists());
+        assert!(root.join("archive/ish-done--completed.md").exists());
+        assert!(root.join("archive/ish-nope--scrapped.md").exists());
+        assert_eq!(
+            store.get("ish-done").expect("done ishoo should exist").path,
+            "archive/ish-done--completed.md"
+        );
+        assert_eq!(
+            store
+                .get("ish-nope")
+                .expect("scrapped ishoo should exist")
+                .path,
+            "archive/ish-nope--scrapped.md"
+        );
     }
 
     fn write_ishoo(
