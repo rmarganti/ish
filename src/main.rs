@@ -6,16 +6,21 @@ mod output;
 mod roadmap;
 
 use clap::Parser;
+use serde_json::Value;
 use std::process::ExitCode;
 
 use crate::cli::prime_output;
 use crate::config::{Config, find_config};
+use crate::output::{ErrorCode, output_error, output_message, output_success};
 use crate::roadmap::{RoadmapOptions, roadmap_output};
 
 /// A terminal-based issue tracker.
 #[derive(Parser)]
 #[command(name = "ish", version, about)]
 struct Cli {
+    /// Output structured JSON.
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -35,9 +40,6 @@ struct RoadmapArgs {
     /// Include completed and scrapped items.
     #[arg(long)]
     include_done: bool,
-    /// Output as JSON.
-    #[arg(long)]
-    json: bool,
     /// Filter milestones by status.
     #[arg(long = "status")]
     status: Vec<String>,
@@ -52,12 +54,28 @@ struct RoadmapArgs {
     link_prefix: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AppError {
+    code: ErrorCode,
+    message: String,
+}
+
+impl AppError {
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
 fn version_output() -> String {
     format!("ish {}", env!("CARGO_PKG_VERSION"))
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let json = cli.json;
 
     match run(cli) {
         Ok(Some(output)) => {
@@ -66,28 +84,49 @@ fn main() -> ExitCode {
         }
         Ok(None) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("ish: {error}");
+            if json {
+                println!("{}", output_error(error.code, error.message));
+            } else {
+                eprintln!("ish: {}", error.message);
+            }
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cli: Cli) -> Result<Option<String>, String> {
+fn run(cli: Cli) -> Result<Option<String>, AppError> {
     match cli.command {
-        Some(Commands::Prime) => prime_command(),
-        Some(Commands::Roadmap(args)) => roadmap_command(args),
-        Some(Commands::Version) => Ok(Some(version_output())),
-        None => Ok(Some(
-            "ish: no command specified. Run `ish --help` for usage.".to_string(),
-        )),
+        Some(Commands::Prime) => prime_command(cli.json),
+        Some(Commands::Roadmap(args)) => roadmap_command(args, cli.json),
+        Some(Commands::Version) => {
+            if cli.json {
+                Ok(Some(
+                    output_message(version_output()).map_err(json_output_error)?,
+                ))
+            } else {
+                Ok(Some(version_output()))
+            }
+        }
+        None => {
+            let message = "ish: no command specified. Run `ish --help` for usage.";
+            if cli.json {
+                Ok(Some(output_error(ErrorCode::Validation, message)))
+            } else {
+                Ok(Some(message.to_string()))
+            }
+        }
     }
 }
 
-fn roadmap_command(args: RoadmapArgs) -> Result<Option<String>, String> {
-    let current_dir = std::env::current_dir()
-        .map_err(|error| format!("failed to determine current directory: {error}"))?;
+fn roadmap_command(args: RoadmapArgs, json: bool) -> Result<Option<String>, AppError> {
+    let current_dir = std::env::current_dir().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to determine current directory: {error}"),
+        )
+    })?;
 
-    roadmap_output(
+    let output = roadmap_output(
         &current_dir,
         &RoadmapOptions {
             include_done: args.include_done,
@@ -95,28 +134,76 @@ fn roadmap_command(args: RoadmapArgs) -> Result<Option<String>, String> {
             no_status: args.no_status,
             no_links: args.no_links,
             link_prefix: args.link_prefix,
-            json: args.json,
+            json,
         },
     )
+    .map_err(classify_app_error)?;
+
+    if json {
+        let Some(output) = output else {
+            return Ok(None);
+        };
+        let data: Value = serde_json::from_str(&output).map_err(|error| {
+            AppError::new(
+                ErrorCode::FileError,
+                format!("failed to parse command JSON output: {error}"),
+            )
+        })?;
+        Ok(Some(output_success(data).map_err(json_output_error)?))
+    } else {
+        Ok(output)
+    }
 }
 
-fn prime_command() -> Result<Option<String>, String> {
-    let current_dir = std::env::current_dir()
-        .map_err(|error| format!("failed to determine current directory: {error}"))?;
+fn prime_command(json: bool) -> Result<Option<String>, AppError> {
+    let current_dir = std::env::current_dir().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to determine current directory: {error}"),
+        )
+    })?;
     let Some(config_path) = find_config(&current_dir) else {
         return Ok(None);
     };
 
-    let config = Config::load(&config_path)
-        .map_err(|error| format!("failed to load `{}`: {error}", config_path.display()))?;
+    let config = Config::load(&config_path).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to load `{}`: {error}", config_path.display()),
+        )
+    })?;
 
-    Ok(Some(prime_output(&config)))
+    let output = prime_output(&config);
+    if json {
+        Ok(Some(output_message(output).map_err(json_output_error)?))
+    } else {
+        Ok(Some(output))
+    }
+}
+
+fn classify_app_error(message: String) -> AppError {
+    let code = if message.contains("no `.ish.yml` found") {
+        ErrorCode::NotFound
+    } else if message.contains("etag") || message.contains("conflict") {
+        ErrorCode::Conflict
+    } else if message.contains("invalid") {
+        ErrorCode::Validation
+    } else {
+        ErrorCode::FileError
+    };
+
+    AppError::new(code, message)
+}
+
+fn json_output_error(message: String) -> AppError {
+    AppError::new(ErrorCode::FileError, message)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Cli, Commands, RoadmapArgs, prime_command, roadmap_command, run, version_output};
     use crate::config::Config;
+    use serde_json::Value;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -196,6 +283,7 @@ mod tests {
         let _guard = WorkingDirGuard::change_to(temp.path());
 
         let output = run(Cli {
+            json: false,
             command: Some(Commands::Prime),
         })
         .expect("prime command should succeed")
@@ -211,7 +299,7 @@ mod tests {
         let _guard = WorkingDirGuard::change_to(temp.path());
 
         assert!(
-            prime_command()
+            prime_command(false)
                 .expect("prime command should succeed")
                 .is_none()
         );
@@ -235,12 +323,12 @@ mod tests {
         let output = run(Cli {
             command: Some(Commands::Roadmap(RoadmapArgs {
                 include_done: false,
-                json: false,
                 status: Vec::new(),
                 no_status: Vec::new(),
                 no_links: true,
                 link_prefix: None,
             })),
+            json: false,
         })
         .expect("roadmap command should succeed")
         .expect("roadmap command should print output");
@@ -254,16 +342,101 @@ mod tests {
         let temp = TestDir::new();
         let _guard = WorkingDirGuard::change_to(temp.path());
 
-        let error = roadmap_command(RoadmapArgs {
-            include_done: false,
-            json: false,
-            status: Vec::new(),
-            no_status: Vec::new(),
-            no_links: false,
-            link_prefix: None,
-        })
+        let error = roadmap_command(
+            RoadmapArgs {
+                include_done: false,
+                status: Vec::new(),
+                no_status: Vec::new(),
+                no_links: false,
+                link_prefix: None,
+            },
+            false,
+        )
         .expect_err("roadmap command should fail without config");
 
-        assert!(error.contains("no `.ish.yml` found"));
+        assert!(error.message.contains("no `.ish.yml` found"));
+    }
+
+    #[test]
+    fn run_version_wraps_output_in_json_mode() {
+        let output = run(Cli {
+            json: true,
+            command: Some(Commands::Version),
+        })
+        .expect("version command should succeed")
+        .expect("version command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["message"], Value::String(version_output()));
+    }
+
+    #[test]
+    fn run_roadmap_wraps_nested_json_in_response() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Roadmap JSON Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        fs::write(
+            store_root.join("ish-m1--milestone.md"),
+            "---\n# ish-m1\ntitle: Milestone\nstatus: todo\ntype: milestone\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nMilestone body.\n",
+        )
+        .expect("milestone file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = run(Cli {
+            json: true,
+            command: Some(Commands::Roadmap(RoadmapArgs {
+                include_done: false,
+                status: Vec::new(),
+                no_status: Vec::new(),
+                no_links: true,
+                link_prefix: None,
+            })),
+        })
+        .expect("roadmap command should succeed")
+        .expect("roadmap command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["data"]["milestones"][0]["milestone"]["id"], "ish-m1");
+    }
+
+    #[test]
+    fn run_without_command_returns_validation_error_in_json_mode() {
+        let output = run(Cli {
+            json: true,
+            command: None,
+        })
+        .expect("run should succeed")
+        .expect("run should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(false));
+        assert_eq!(parsed["code"], Value::String("validation".to_string()));
+    }
+
+    #[test]
+    fn prime_command_wraps_markdown_in_json_mode() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Prime JSON Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = prime_command(true)
+            .expect("prime command should succeed")
+            .expect("prime command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert!(
+            parsed["message"]
+                .as_str()
+                .expect("message should be present")
+                .contains("# ish Agent Guide")
+        );
     }
 }
