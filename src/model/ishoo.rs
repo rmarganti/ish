@@ -1,8 +1,21 @@
 use chrono::{DateTime, Utc};
 use fnv::FnvHasher;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hasher;
+use std::path::Path;
+
+const ID_ALPHABET: [char; 36] = [
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
+    't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+];
+
+const BLOCKED_SUBSTRINGS: &[&str] = &[
+    "anal", "anus", "arse", "ass", "bitch", "boob", "butt", "cock", "cunt", "damn", "dick",
+    "dildo", "dyke", "fag", "fuck", "hell", "jizz", "knob", "penis", "piss", "poop", "porn",
+    "pussy", "sex", "shit", "slut", "tit", "twat", "vag",
+];
 
 /// The core issue type. An Ishoo is stored as a markdown file with YAML frontmatter.
 #[derive(Debug, Clone, PartialEq)]
@@ -297,14 +310,73 @@ fn split_frontmatter(content: &str) -> Result<(String, String, String), ParseErr
 /// Parse an issue filename into `(id, slug)`.
 ///
 /// Supports `{id}--{slug}.md` and `{id}.md`.
-fn parse_filename(filename: &str) -> (String, String) {
-    let name = filename.strip_suffix(".md").unwrap_or(filename);
+pub fn new_id(prefix: &str, length: usize) -> String {
+    loop {
+        let suffix = nanoid!(length, &ID_ALPHABET);
+        let id = if prefix.is_empty() {
+            suffix
+        } else {
+            format!("{prefix}-{suffix}")
+        };
+
+        if !contains_blocked_substring(&id) {
+            return id;
+        }
+    }
+}
+
+pub fn parse_filename(filename: &str) -> (String, String) {
+    let file_name = Path::new(filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(filename);
+    let name = file_name.strip_suffix(".md").unwrap_or(file_name);
 
     if let Some((id, slug)) = name.split_once("--") {
         (id.to_string(), slug.to_string())
     } else {
         (name.to_string(), String::new())
     }
+}
+
+pub fn build_filename(id: &str, slug: &str) -> String {
+    if slug.is_empty() {
+        format!("{id}.md")
+    } else {
+        format!("{id}--{slug}.md")
+    }
+}
+
+pub fn slugify(title: &str) -> String {
+    let mut slug = String::new();
+
+    for ch in title.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            slug.push(ch);
+            continue;
+        }
+
+        if (ch.is_whitespace() || ch == '_' || ch == '-')
+            && !slug.is_empty()
+            && !slug.ends_with('-')
+        {
+            slug.push('-');
+        }
+    }
+
+    if slug.len() > 50 {
+        slug.truncate(50);
+    }
+
+    slug.trim_matches('-').to_string()
+}
+
+fn contains_blocked_substring(value: &str) -> bool {
+    let lowered = value.to_ascii_lowercase();
+
+    BLOCKED_SUBSTRINGS
+        .iter()
+        .any(|blocked| lowered.contains(blocked))
 }
 
 #[cfg(test)]
@@ -502,6 +574,97 @@ updated_at: 2026-01-01T00:00:00Z
         let (id, slug) = parse_filename("ish-a1b2.md");
         assert_eq!(id, "ish-a1b2");
         assert_eq!(slug, "");
+    }
+
+    #[test]
+    fn test_parse_filename_uses_basename() {
+        let (id, slug) = parse_filename(".beans/ish-a1b2--fix-the-widget.md");
+        assert_eq!(id, "ish-a1b2");
+        assert_eq!(slug, "fix-the-widget");
+    }
+
+    #[test]
+    fn test_build_filename_with_slug() {
+        assert_eq!(
+            build_filename("ish-a1b2", "fix-the-widget"),
+            "ish-a1b2--fix-the-widget.md"
+        );
+    }
+
+    #[test]
+    fn test_build_filename_without_slug() {
+        assert_eq!(build_filename("ish-a1b2", ""), "ish-a1b2.md");
+    }
+
+    #[test]
+    fn test_filename_round_trip_with_slug() {
+        let filename = build_filename("ish-a1b2", "fix-the-widget");
+        let (id, slug) = parse_filename(&filename);
+
+        assert_eq!(id, "ish-a1b2");
+        assert_eq!(slug, "fix-the-widget");
+    }
+
+    #[test]
+    fn test_filename_round_trip_without_slug() {
+        let filename = build_filename("ish-a1b2", "");
+        let (id, slug) = parse_filename(&filename);
+
+        assert_eq!(id, "ish-a1b2");
+        assert_eq!(slug, "");
+    }
+
+    #[test]
+    fn test_slugify_normalizes_title() {
+        assert_eq!(slugify("Fix the_widget"), "fix-the-widget");
+    }
+
+    #[test]
+    fn test_slugify_strips_unicode_and_special_characters() {
+        assert_eq!(slugify("Crème brûlée!!!"), "crme-brle");
+    }
+
+    #[test]
+    fn test_slugify_collapses_repeated_separators() {
+        assert_eq!(slugify("Hello___world -- again"), "hello-world-again");
+    }
+
+    #[test]
+    fn test_slugify_truncates_to_fifty_characters() {
+        let slug = slugify("abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz");
+
+        assert_eq!(slug, "abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvw");
+        assert_eq!(slug.len(), 50);
+    }
+
+    #[test]
+    fn test_new_id_uses_expected_format() {
+        let id = new_id("ish", 6);
+
+        assert!(id.starts_with("ish-"));
+        assert_eq!(id.len(), 10);
+        assert!(
+            id[4..]
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        );
+    }
+
+    #[test]
+    fn test_generated_ids_never_include_blocked_substrings() {
+        for _ in 0..256 {
+            let id = new_id("ish", 8);
+            assert!(
+                !contains_blocked_substring(&id),
+                "generated blocked id: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_contains_blocked_substring_detects_offensive_words() {
+        assert!(contains_blocked_substring("ish-fuck"));
+        assert!(!contains_blocked_substring("ish-safe1"));
     }
 
     #[test]
