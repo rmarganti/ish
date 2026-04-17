@@ -15,9 +15,33 @@ struct Cli {
 }
 
 #[derive(clap::Subcommand)]
-enum Commands {}
+enum Commands {
+    /// Print the current ish version.
+    Version,
+}
+
+fn version_output() -> String {
+    format!("ish {}", env!("CARGO_PKG_VERSION"))
+}
 
 fn main() {
-    let _cli = Cli::parse();
-    println!("ish: no command specified. Run `ish --help` for usage.");
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Version) => println!("{}", version_output()),
+        None => println!("ish: no command specified. Run `ish --help` for usage."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_output;
+
+    #[test]
+    fn version_output_uses_package_version() {
+        assert_eq!(
+            version_output(),
+            format!("ish {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
 }
