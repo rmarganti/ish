@@ -11,6 +11,8 @@ const ID_ALPHABET: [char; 36] = [
     't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
 
+const ORDER_ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
 const BLOCKED_SUBSTRINGS: &[&str] = &[
     "anal", "anus", "arse", "ass", "bitch", "boob", "butt", "cock", "cunt", "damn", "dick",
     "dildo", "dyke", "fag", "fuck", "hell", "jizz", "knob", "penis", "piss", "poop", "porn",
@@ -405,6 +407,88 @@ pub fn append_with_separator(text: &str, addition: &str) -> String {
     }
 
     format!("{text}\n\n{addition}")
+}
+
+pub fn midpoint() -> String {
+    order_char(ORDER_ALPHABET.len() / 2).to_string()
+}
+
+pub fn increment_key(key: &str) -> Option<String> {
+    if !is_valid_order_key(key) {
+        return None;
+    }
+
+    Some(format!("{key}{}", midpoint()))
+}
+
+pub fn decrement_key(key: &str) -> Option<String> {
+    if !is_valid_order_key(key) || key.is_empty() {
+        return None;
+    }
+
+    let first = order_index(key.as_bytes()[0]).expect("validated order key should decode");
+    if first > 0 {
+        return Some(order_char(first / 2).to_string());
+    }
+
+    (key.len() > 1)
+        .then(|| ORDER_ALPHABET[0] as char)
+        .map(|ch| ch.to_string())
+}
+
+pub fn order_between(a: &str, b: &str) -> Option<String> {
+    if !is_valid_order_key(a) || !is_valid_order_key(b) {
+        return None;
+    }
+
+    if !b.is_empty() && a >= b {
+        return None;
+    }
+
+    if a.is_empty() && b.is_empty() {
+        return Some(midpoint());
+    }
+
+    if b.is_empty() {
+        return increment_key(a);
+    }
+
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let mut shared = 0;
+    while shared < a_bytes.len() && shared < b_bytes.len() && a_bytes[shared] == b_bytes[shared] {
+        shared += 1;
+    }
+
+    let prefix = &a[..shared];
+
+    if shared == a_bytes.len() {
+        let tail = decrement_key(&b[shared..])?;
+        return Some(format!("{prefix}{tail}"));
+    }
+
+    let lower = order_index(a_bytes[shared]).expect("validated order key should decode");
+    let upper = order_index(b_bytes[shared]).expect("validated order key should decode");
+
+    if upper > lower + 1 {
+        return Some(format!("{prefix}{}", order_char((lower + upper) / 2)));
+    }
+
+    Some(format!("{a}{}", midpoint()))
+}
+
+fn is_valid_order_key(key: &str) -> bool {
+    key.bytes().all(|byte| order_index(byte).is_some())
+}
+
+fn order_index(byte: u8) -> Option<usize> {
+    ORDER_ALPHABET
+        .iter()
+        .position(|candidate| *candidate == byte)
+}
+
+fn order_char(index: usize) -> char {
+    ORDER_ALPHABET[index] as char
 }
 
 /// Split a file's content into `(id, yaml, body)`.
@@ -974,5 +1058,76 @@ updated_at: 2026-01-01T00:00:00Z
     fn test_append_with_separator_returns_non_empty_side() {
         assert_eq!(append_with_separator("", "second"), "second");
         assert_eq!(append_with_separator("first", ""), "first");
+    }
+
+    #[test]
+    fn test_midpoint_uses_base62_middle_digit() {
+        assert_eq!(midpoint(), "V");
+    }
+
+    #[test]
+    fn test_order_between_handles_empty_bounds() {
+        assert_eq!(order_between("", ""), Some("V".to_string()));
+        assert_eq!(order_between("", "V"), Some("F".to_string()));
+        assert_eq!(order_between("V", ""), Some("VV".to_string()));
+    }
+
+    #[test]
+    fn test_order_between_returns_key_between_bounds() {
+        let cases = [
+            ("", "V"),
+            ("V", ""),
+            ("V", "W"),
+            ("V", "k"),
+            ("V", "VV"),
+            ("F", "V"),
+        ];
+
+        for (lower, upper) in cases {
+            let between = order_between(lower, upper).expect("valid bounds should produce a key");
+
+            if !lower.is_empty() {
+                assert!(
+                    lower < between.as_str(),
+                    "{lower} should sort before {between}"
+                );
+            }
+
+            if !upper.is_empty() {
+                assert!(
+                    between.as_str() < upper,
+                    "{between} should sort before {upper}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_increment_and_decrement_key_delegate_to_order_between() {
+        assert_eq!(increment_key("V"), Some("VV".to_string()));
+        assert_eq!(decrement_key("V"), Some("F".to_string()));
+    }
+
+    #[test]
+    fn test_order_between_repeated_insertions_stay_monotonic() {
+        let mut lower = String::new();
+        let mut generated = Vec::new();
+
+        for _ in 0..8 {
+            let next = order_between(&lower, "").expect("should generate a key after lower");
+            generated.push(next.clone());
+            lower = next;
+        }
+
+        assert!(generated.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn test_order_between_rejects_invalid_or_impossible_ranges() {
+        assert_eq!(order_between("V", "V"), None);
+        assert_eq!(order_between("V", "F"), None);
+        assert_eq!(order_between("V", "V0"), None);
+        assert_eq!(decrement_key("0"), None);
+        assert_eq!(order_between("bad!", ""), None);
     }
 }
