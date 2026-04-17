@@ -13,15 +13,6 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
-!.beans.yml
-!.beans/
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-
-
 # Added by cargo
 
 /target

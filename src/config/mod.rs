@@ -371,7 +371,7 @@ mod tests {
     fn save_and_load_round_trip_config() {
         let temp = TestDir::new();
         let mut config = Config::default_with_prefix("bean");
-        config.ish.path = ".beans".to_string();
+        config.ish.path = ".ish".to_string();
         config.ish.id_length = 6;
         config.ish.default_status = "draft".to_string();
         config.ish.default_type = "feature".to_string();

@@ -816,7 +816,7 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_parse_filename_uses_basename() {
-        let (id, slug) = parse_filename(".beans/ish-a1b2--fix-the-widget.md");
+        let (id, slug) = parse_filename(".ish/ish-a1b2--fix-the-widget.md");
         assert_eq!(id, "ish-a1b2");
         assert_eq!(slug, "fix-the-widget");
     }
