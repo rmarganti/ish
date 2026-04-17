@@ -1,11 +1,11 @@
 ---
 # ish-nfx6
 title: Introduce app context, error, and dispatch modules
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-04-17T19:01:25Z
-updated_at: 2026-04-17T19:02:06Z
+updated_at: 2026-04-17T19:12:23Z
 parent: ish-hqty
 ---
 
@@ -33,13 +33,24 @@ These concerns are used by multiple commands and should not remain duplicated or
 
 ## Success Criteria
 
-- [ ] Shared store/config bootstrap logic no longer lives in `src/main.rs`.
-- [ ] Error classification/mapping is centralized in `src/app/error.rs`.
-- [ ] Command dispatch is readable and no longer buried among command implementations.
+- [x] Shared store/config bootstrap logic no longer lives in `src/main.rs`.
+- [x] Error classification/mapping is centralized in `src/app/error.rs`.
+- [x] Command dispatch is readable and no longer buried among command implementations.
 
 ## Verification
 
-- [ ] `cargo test`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy -- -D warnings`
-- [ ] At least one representative command (`list`, `show`, or `create`) still works through the new app layer.
+- [x] `cargo test`
+- [x] `cargo fmt --all -- --check`
+- [x] `cargo clippy -- -D warnings`
+- [x] At least one representative command (`list`, `show`, or `create`) still works through the new app layer.
+
+## Summary of Changes
+
+- Added `src/app/mod.rs`, `src/app/context.rs`, and `src/app/error.rs` to own top-level dispatch, shared context loading, and app error translation.
+- Updated `src/main.rs` to delegate command routing to the new app layer while keeping command implementations intact.
+- Added a regression test that exercises `run()` dispatching `list` through the new app layer.
+
+## Notes for Future Workers
+
+- `load_store_from_current_dir()` in `src/main.rs` is now only a thin compatibility wrapper over `AppContext::load()` for existing tests/helpers; shared bootstrap logic lives in `src/app/context.rs`.
+- Top-level app error mapping now lives in `src/app/error.rs`, so new entrypoint-facing error conversions should be added there rather than back in `src/main.rs`.
