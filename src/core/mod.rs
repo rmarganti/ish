@@ -1,3 +1,6 @@
+#[allow(dead_code)]
+pub mod store;
+
 use crate::model::ishoo::Ishoo;
 
 /// Return ishoos whose title, slug, or body contains the query.
