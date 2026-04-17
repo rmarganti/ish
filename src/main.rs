@@ -7,12 +7,14 @@ mod roadmap;
 
 use clap::Parser;
 use serde_json::Value;
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::prime_output;
 use crate::config::{CONFIG_FILE_NAME, Config, find_config};
+use crate::core::store::Store;
 use crate::output::{
     ErrorCode, danger, output_error, output_message, output_success, success, warning,
 };
@@ -37,6 +39,8 @@ struct Cli {
 enum Commands {
     /// Initialize a new ish project in the current directory.
     Init,
+    /// Move completed and scrapped ishoos to the archive directory.
+    Archive,
     /// Print AI-agent guidance for the current ish project.
     Prime,
     /// Generate a roadmap from milestone and epic hierarchy.
@@ -107,6 +111,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<Option<String>, AppError> {
     match cli.command {
         Some(Commands::Init) => init_command(cli.json),
+        Some(Commands::Archive) => archive_command(cli.json),
         Some(Commands::Prime) => prime_command(cli.json),
         Some(Commands::Roadmap(args)) => roadmap_command(args, cli.json),
         Some(Commands::Version) => {
@@ -180,6 +185,36 @@ fn init_command(json: bool) -> Result<Option<String>, AppError> {
     }
 }
 
+fn archive_command(json: bool) -> Result<Option<String>, AppError> {
+    let (_, mut store) = load_store_from_current_dir()?;
+    let archived = store.archive_all_completed().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to archive completed ishoos: {error}"),
+        )
+    })?;
+
+    if json {
+        return Ok(Some(
+            output_success(json!({ "archived": archived })).map_err(json_output_error)?,
+        ));
+    }
+
+    let message = if archived == 0 {
+        "no completed or scrapped ishoos to archive".to_string()
+    } else if archived == 1 {
+        "archived 1 ishoo".to_string()
+    } else {
+        format!("archived {archived} ishoos")
+    };
+
+    if archived == 0 {
+        Ok(Some(warning(&message)))
+    } else {
+        Ok(Some(success(&message)))
+    }
+}
+
 fn project_name(dir: &Path) -> Result<String, AppError> {
     dir.file_name()
         .and_then(|name| name.to_str())
@@ -194,12 +229,7 @@ fn project_name(dir: &Path) -> Result<String, AppError> {
 }
 
 fn roadmap_command(args: RoadmapArgs, json: bool) -> Result<Option<String>, AppError> {
-    let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to determine current directory: {error}"),
-        )
-    })?;
+    let (current_dir, _) = load_store_from_current_dir()?;
 
     let output = roadmap_output(
         &current_dir,
@@ -256,6 +286,51 @@ fn prime_command(json: bool) -> Result<Option<String>, AppError> {
     }
 }
 
+fn load_store_from_current_dir() -> Result<(std::path::PathBuf, Store), AppError> {
+    let current_dir = std::env::current_dir().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to determine current directory: {error}"),
+        )
+    })?;
+    let Some(config_path) = find_config(&current_dir) else {
+        return Err(AppError::new(
+            ErrorCode::NotFound,
+            "no `.ish.yml` found in the current directory or its parents",
+        ));
+    };
+
+    let config = Config::load(&config_path).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to load `{}`: {error}", config_path.display()),
+        )
+    })?;
+    let store_root = config_path
+        .parent()
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::FileError,
+                format!("invalid config path: {}", config_path.display()),
+            )
+        })?
+        .join(&config.ish.path);
+    let mut store = Store::new(&store_root, config).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to open store `{}`: {error}", store_root.display()),
+        )
+    })?;
+    store.load().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to load store `{}`: {error}", store_root.display()),
+        )
+    })?;
+
+    Ok((current_dir, store))
+}
+
 fn classify_app_error(message: String) -> AppError {
     let code = if message.contains("no `.ish.yml` found") {
         ErrorCode::NotFound
@@ -277,8 +352,8 @@ fn json_output_error(message: String) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, Commands, RoadmapArgs, STORE_GITIGNORE_CONTENT, init_command, prime_command,
-        roadmap_command, run, version_output,
+        Cli, Commands, RoadmapArgs, STORE_GITIGNORE_CONTENT, archive_command, init_command,
+        prime_command, roadmap_command, run, version_output,
     };
     use crate::config::{CONFIG_FILE_NAME, Config};
     use serde_json::Value;
@@ -369,6 +444,86 @@ mod tests {
 
         assert!(output.contains("# ish Agent Guide"));
         assert!(output.contains("Prime Test"));
+    }
+
+    #[test]
+    fn run_archive_moves_completed_ishoos() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Archive Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        fs::write(
+            store_root.join("ish-done--completed.md"),
+            "---\n# ish-done\ntitle: Done\nstatus: completed\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nDone body.\n",
+        )
+        .expect("completed file should exist");
+        fs::write(
+            store_root.join("ish-todo--todo.md"),
+            "---\n# ish-todo\ntitle: Todo\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nTodo body.\n",
+        )
+        .expect("todo file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = run(Cli {
+            json: false,
+            command: Some(Commands::Archive),
+        })
+        .expect("archive command should succeed")
+        .expect("archive command should print output");
+
+        assert!(output.contains("archived 1 ishoo"));
+        assert!(store_root.join("archive/ish-done--completed.md").exists());
+        assert!(!store_root.join("ish-done--completed.md").exists());
+        assert!(store_root.join("ish-todo--todo.md").exists());
+    }
+
+    #[test]
+    fn archive_command_returns_noop_message_when_nothing_matches() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Archive Empty Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        fs::write(
+            store_root.join("ish-todo--todo.md"),
+            "---\n# ish-todo\ntitle: Todo\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nTodo body.\n",
+        )
+        .expect("todo file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = archive_command(false)
+            .expect("archive command should succeed")
+            .expect("archive command should print output");
+
+        assert!(output.contains("no completed or scrapped ishoos to archive"));
+        assert!(!store_root.join("archive").exists());
+    }
+
+    #[test]
+    fn archive_command_wraps_archived_count_in_json_mode() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Archive JSON Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        fs::write(
+            store_root.join("ish-nope--scrapped.md"),
+            "---\n# ish-nope\ntitle: Nope\nstatus: scrapped\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nNope body.\n",
+        )
+        .expect("scrapped file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = archive_command(true)
+            .expect("archive command should succeed")
+            .expect("archive command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["data"]["archived"], Value::from(1));
     }
 
     #[test]
