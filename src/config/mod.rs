@@ -22,6 +22,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct IshConfig {
     pub path: String,
     pub prefix: String,
@@ -37,6 +38,7 @@ impl Default for IshConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ProjectConfig {
     #[serde(default)]
     pub name: String,
