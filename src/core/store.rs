@@ -494,6 +494,90 @@ impl Store {
         incoming
     }
 
+    pub fn find_active_blockers(&self, id: &str) -> Vec<String> {
+        let normalized_id = self.normalize_id(id);
+        let mut blockers = HashSet::new();
+
+        let Some(ishoo) = self.ishoos.get(&normalized_id) else {
+            return Vec::new();
+        };
+
+        for blocker_id in &ishoo.blocked_by {
+            if self.has_active_status(blocker_id) {
+                blockers.insert(blocker_id.clone());
+            }
+        }
+
+        for candidate in self.ishoos.values() {
+            if candidate
+                .blocking
+                .iter()
+                .any(|blocked_id| blocked_id == &normalized_id)
+                && !self.config.is_archive_status(&candidate.status)
+            {
+                blockers.insert(candidate.id.clone());
+            }
+        }
+
+        let mut blockers = blockers.into_iter().collect::<Vec<_>>();
+        blockers.sort();
+        blockers
+    }
+
+    pub fn find_all_blockers(&self, id: &str) -> Vec<String> {
+        let mut blockers = self
+            .find_active_blockers(id)
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        self.walk_parent_chain(id, |ancestor| {
+            blockers.extend(self.find_active_blockers(&ancestor.id));
+            true
+        });
+
+        let mut blockers = blockers.into_iter().collect::<Vec<_>>();
+        blockers.sort();
+        blockers
+    }
+
+    pub fn is_blocked(&self, id: &str) -> bool {
+        !self.find_all_blockers(id).is_empty()
+    }
+
+    pub fn is_explicitly_blocked(&self, id: &str) -> bool {
+        !self.find_active_blockers(id).is_empty()
+    }
+
+    pub fn is_implicitly_blocked(&self, id: &str) -> bool {
+        let mut is_blocked = false;
+
+        self.walk_parent_chain(id, |ancestor| {
+            if !self.find_active_blockers(&ancestor.id).is_empty() {
+                is_blocked = true;
+                return false;
+            }
+
+            true
+        });
+
+        is_blocked
+    }
+
+    pub fn implicit_status(&self, id: &str) -> Option<(String, String)> {
+        let mut inherited = None;
+
+        self.walk_parent_chain(id, |ancestor| {
+            if self.config.is_archive_status(&ancestor.status) {
+                inherited = Some((ancestor.status.clone(), ancestor.id.clone()));
+                return false;
+            }
+
+            true
+        });
+
+        inherited
+    }
+
     pub fn check_all_links(&self) -> LinkCheckResult {
         let mut result = LinkCheckResult::default();
         let mut seen_cycles = HashSet::new();
@@ -777,6 +861,39 @@ impl Store {
             LinkType::Blocking => ishoo.blocking.clone(),
             LinkType::BlockedBy => ishoo.blocked_by.clone(),
         }
+    }
+
+    fn walk_parent_chain<F>(&self, id: &str, mut visitor: F)
+    where
+        F: FnMut(&Ishoo) -> bool,
+    {
+        let mut next_parent = self
+            .ishoos
+            .get(&self.normalize_id(id))
+            .and_then(|ishoo| ishoo.parent.clone());
+        let mut visited = HashSet::new();
+
+        while let Some(parent_id) = next_parent {
+            if !visited.insert(parent_id.clone()) {
+                break;
+            }
+
+            let Some(parent) = self.ishoos.get(&parent_id) else {
+                break;
+            };
+
+            if !visitor(parent) {
+                break;
+            }
+
+            next_parent = parent.parent.clone();
+        }
+    }
+
+    fn has_active_status(&self, id: &str) -> bool {
+        self.ishoos
+            .get(id)
+            .is_some_and(|ishoo| !self.config.is_archive_status(&ishoo.status))
     }
 }
 
@@ -1621,6 +1738,137 @@ mod tests {
         assert!(!contents.contains("- ish-missing"));
         assert!(!contents.contains("- ish-bad"));
         assert!(!contents.contains("- ish-missing-two"));
+    }
+
+    #[test]
+    fn blocker_queries_include_direct_blockers_from_both_link_directions() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-target--target.md"),
+            "---\n# ish-target\ntitle: Target\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n  - ish-listed\n---\n\nTarget body.\n",
+        )
+        .expect("target file should be written");
+        fs::write(
+            root.join("ish-listed--listed.md"),
+            "---\n# ish-listed\ntitle: Listed\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nListed body.\n",
+        )
+        .expect("listed blocker file should be written");
+        fs::write(
+            root.join("ish-incoming--incoming.md"),
+            "---\n# ish-incoming\ntitle: Incoming\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nIncoming body.\n",
+        )
+        .expect("incoming blocker file should be written");
+        fs::write(
+            root.join("ish-resolved--resolved.md"),
+            "---\n# ish-resolved\ntitle: Resolved\nstatus: completed\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nResolved body.\n",
+        )
+        .expect("resolved blocker file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.find_active_blockers("target"),
+            vec!["ish-incoming".to_string(), "ish-listed".to_string()]
+        );
+        assert!(store.is_explicitly_blocked("target"));
+    }
+
+    #[test]
+    fn blocker_queries_include_ancestor_blockers() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-parent--parent.md"),
+            "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n  - ish-parent-blocker\n---\n\nParent body.\n",
+        )
+        .expect("parent file should be written");
+        fs::write(
+            root.join("ish-child--child.md"),
+            "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n\nChild body.\n",
+        )
+        .expect("child file should be written");
+        fs::write(
+            root.join("ish-parent-blocker--parent-blocker.md"),
+            "---\n# ish-parent-blocker\ntitle: Parent Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nParent blocker body.\n",
+        )
+        .expect("parent blocker file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.find_all_blockers("child"),
+            vec!["ish-parent-blocker".to_string()]
+        );
+        assert!(store.is_blocked("child"));
+        assert!(!store.is_explicitly_blocked("child"));
+        assert!(store.is_implicitly_blocked("child"));
+    }
+
+    #[test]
+    fn implicit_status_returns_first_terminal_ancestor() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-grandparent--grandparent.md"),
+            "---\n# ish-grandparent\ntitle: Grandparent\nstatus: completed\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nGrandparent body.\n",
+        )
+        .expect("grandparent file should be written");
+        fs::write(
+            root.join("ish-parent--parent.md"),
+            "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-grandparent\n---\n\nParent body.\n",
+        )
+        .expect("parent file should be written");
+        fs::write(
+            root.join("ish-child--child.md"),
+            "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n\nChild body.\n",
+        )
+        .expect("child file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.implicit_status("child"),
+            Some(("completed".to_string(), "ish-grandparent".to_string()))
+        );
+    }
+
+    #[test]
+    fn parent_chain_cycle_does_not_loop_when_finding_inherited_state() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-a--a.md"),
+            "---\n# ish-a\ntitle: A\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-b\nblocked_by:\n  - ish-blocker\n---\n\nA body.\n",
+        )
+        .expect("a file should be written");
+        fs::write(
+            root.join("ish-b--b.md"),
+            "---\n# ish-b\ntitle: B\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-a\n---\n\nB body.\n",
+        )
+        .expect("b file should be written");
+        fs::write(
+            root.join("ish-blocker--blocker.md"),
+            "---\n# ish-blocker\ntitle: Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nBlocker body.\n",
+        )
+        .expect("blocker file should be written");
+
+        let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+        store.load().expect("store should load files");
+
+        assert_eq!(
+            store.find_all_blockers("b"),
+            vec!["ish-blocker".to_string()]
+        );
+        assert!(store.is_implicitly_blocked("b"));
+        assert_eq!(store.implicit_status("b"), None);
     }
 
     fn write_ishoo(
