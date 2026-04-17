@@ -2,7 +2,7 @@ use crate::config::Config;
 
 const PRIME_PROMPT_TEMPLATE: &str = include_str!("prime_prompt.tmpl");
 
-const COMMAND_REFERENCE: [(&str, &str); 10] = [
+const COMMAND_REFERENCE: [(&str, &str); 11] = [
     (
         "init",
         "Create a new `.ish.yml` and initialize the ishoo workspace.",
@@ -16,6 +16,10 @@ const COMMAND_REFERENCE: [(&str, &str); 10] = [
         "List ishoos, optionally filtered by status, type, or text search.",
     ),
     ("update", "Update ishoo metadata or body content in place."),
+    (
+        "show",
+        "Show full ishoo details, including rendered markdown body output.",
+    ),
     ("delete", "Delete an ishoo markdown file."),
     (
         "archive",
@@ -154,6 +158,9 @@ mod tests {
             output.contains("- `ish prime`: Print this AI-agent guide for the current project.")
         );
         assert!(output.contains("- `ish update`: Update ishoo metadata or body content in place."));
+        assert!(output.contains(
+            "- `ish show`: Show full ishoo details, including rendered markdown body output."
+        ));
         assert!(output.contains("- `feature` (color: `green`)"));
         assert!(output.contains("- `completed` (color: `gray`; archive status)"));
         assert!(output.contains("- `critical` (color: `red`)"));
@@ -163,7 +170,6 @@ mod tests {
         assert!(output.contains("Prefix new IDs with `proj-`"));
         assert!(output.contains("Use `ish` as the source of truth for work in Ishoo Tracker."));
         assert!(output.contains("Use `ish list --json` for machine-readable output."));
-        assert!(!output.contains("`ish show`"));
         assert!(!output.contains("{{commands}}"));
     }
 
