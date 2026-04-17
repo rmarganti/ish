@@ -13,7 +13,7 @@ Use `ish` as the source of truth for work in {{project_name}}.
 
 {{commands}}
 
-When available, prefer machine-readable output modes for automation so agents can parse results instead of scraping terminal text.
+Use `ish list --json` for machine-readable output. Prefer structured output whenever a command supports it so agents can parse results instead of scraping terminal text.
 
 ## Ishoo Types
 
@@ -37,7 +37,8 @@ When available, prefer machine-readable output modes for automation so agents ca
 ## Concurrency Control
 
 - Read the latest ishoo content before editing it.
-- Use etags or another current-content check when the CLI supports them so updates fail safely instead of overwriting newer edits.
+- Use `ish update --if-match <etag>` when protecting an in-place edit against concurrent changes.
+- Capture the current etag from `ish list --json --full` before attempting a guarded update.
 - If the underlying file changes between read and write, reload the ishoo and reapply the intended edit against the newest content.
 
 ## Relationship Model
