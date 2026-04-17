@@ -7,9 +7,9 @@ mod roadmap;
 
 use clap::Parser;
 use serde::Serialize;
-use serde_json::Value;
 use serde_json::json;
-use std::collections::HashSet;
+use serde_json::{Value, to_value};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
@@ -20,10 +20,12 @@ use crate::config::{CONFIG_FILE_NAME, Config, find_config};
 use crate::core::store::{
     CreateIshoo, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError,
 };
+use crate::core::{SortMode, sort_ishoos};
 use crate::model::ishoo::Ishoo;
 use crate::output::{
-    ErrorCode, danger, is_supported_color_name, muted, output_error, output_message,
-    output_success, render_id, success, warning,
+    ErrorCode, build_tree, danger, detect_terminal_width, is_supported_color_name, muted,
+    output_error, output_message, output_success, output_success_multiple, render_id, render_tree,
+    success, warning,
 };
 use crate::roadmap::{RoadmapOptions, roadmap_output};
 
@@ -48,6 +50,9 @@ enum Commands {
     Init,
     /// Create a new ishoo markdown file.
     Create(CreateArgs),
+    /// List ishoos, optionally filtered and sorted.
+    #[command(visible_alias = "ls")]
+    List(ListArgs),
     /// Delete one or more ishoos.
     #[command(visible_alias = "rm")]
     Delete(DeleteArgs),
@@ -126,6 +131,76 @@ struct CreateArgs {
 }
 
 #[derive(clap::Args)]
+struct ListArgs {
+    /// Filter by status. May be repeated.
+    #[arg(short = 's', long = "status")]
+    status: Vec<String>,
+    /// Exclude statuses. May be repeated.
+    #[arg(long = "no-status")]
+    no_status: Vec<String>,
+    /// Filter by type. May be repeated.
+    #[arg(short = 't', long = "type")]
+    ishoo_type: Vec<String>,
+    /// Exclude types. May be repeated.
+    #[arg(long = "no-type")]
+    no_type: Vec<String>,
+    /// Filter by priority. May be repeated.
+    #[arg(short = 'p', long = "priority")]
+    priority: Vec<String>,
+    /// Exclude priorities. May be repeated.
+    #[arg(long = "no-priority")]
+    no_priority: Vec<String>,
+    /// Match any tag. May be repeated.
+    #[arg(long = "tag")]
+    tag: Vec<String>,
+    /// Exclude any matching tag. May be repeated.
+    #[arg(long = "no-tag")]
+    no_tag: Vec<String>,
+    /// Only include ishoos with a parent.
+    #[arg(long, conflicts_with_all = ["no_parent", "parent"])]
+    has_parent: bool,
+    /// Only include ishoos without a parent.
+    #[arg(long, conflicts_with_all = ["has_parent", "parent"])]
+    no_parent: bool,
+    /// Only include children of the specified parent.
+    #[arg(long = "parent", conflicts_with_all = ["has_parent", "no_parent"])]
+    parent: Option<String>,
+    /// Only include ishoos that block other ishoos.
+    #[arg(long, conflicts_with = "no_blocking")]
+    has_blocking: bool,
+    /// Only include ishoos with no blocking links.
+    #[arg(long, conflicts_with = "has_blocking")]
+    no_blocking: bool,
+    /// Only include blocked ishoos.
+    #[arg(long)]
+    is_blocked: bool,
+    /// Only include ready ishoos.
+    #[arg(long)]
+    ready: bool,
+    /// Case-insensitive substring search.
+    #[arg(short = 'S', long = "search")]
+    search: Option<String>,
+    /// Sort mode.
+    #[arg(long = "sort")]
+    sort: Option<ListSortArg>,
+    /// Print only IDs.
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+    /// Include body in JSON output.
+    #[arg(long)]
+    full: bool,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum ListSortArg {
+    Created,
+    Updated,
+    Status,
+    Priority,
+    Id,
+}
+
+#[derive(clap::Args)]
 struct DeleteArgs {
     /// IDs of the ishoos to delete.
     #[arg(required = true)]
@@ -157,6 +232,18 @@ struct AppError {
 struct RunOutcome {
     output: Option<String>,
     exit_code: ExitCode,
+}
+
+impl ListSortArg {
+    fn into_sort_mode(self) -> SortMode {
+        match self {
+            Self::Created => SortMode::Created,
+            Self::Updated => SortMode::Updated,
+            Self::Status => SortMode::Status,
+            Self::Priority => SortMode::Priority,
+            Self::Id => SortMode::Id,
+        }
+    }
 }
 
 impl AppError {
@@ -198,6 +285,7 @@ fn run(cli: Cli) -> Result<RunOutcome, AppError> {
     match cli.command {
         Some(Commands::Init) => init_command(cli.json).map(success_outcome),
         Some(Commands::Create(args)) => create_command(args, cli.json).map(success_outcome),
+        Some(Commands::List(args)) => list_command(args, cli.json).map(success_outcome),
         Some(Commands::Delete(args)) => delete_command(args, cli.json).map(success_outcome),
         Some(Commands::Archive) => archive_command(cli.json).map(success_outcome),
         Some(Commands::Check(args)) => check_command(args, cli.json),
@@ -292,6 +380,272 @@ fn create_command(args: CreateArgs, json: bool) -> Result<Option<String>, AppErr
         render_id(&ishoo.id),
         muted(&ishoo.path)
     ))))
+}
+
+fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> {
+    let (_, config, store) = load_store_from_current_dir()?;
+    validate_list_args(&args, &config)?;
+
+    let all_ishoos = store.all().into_iter().cloned().collect::<Vec<_>>();
+    let filtered = filter_ishoos(&all_ishoos, &store, &config, &args);
+    let sort_mode = args
+        .sort
+        .map(ListSortArg::into_sort_mode)
+        .unwrap_or(SortMode::Default);
+    let sorted = sort_ishoo_refs(&filtered, sort_mode, &config);
+
+    if json {
+        let ishoos = sorted
+            .into_iter()
+            .map(|ishoo| list_json_value(ishoo, args.full))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(Some(
+            output_success_multiple(ishoos).map_err(json_output_error)?,
+        ));
+    }
+
+    if args.quiet {
+        let output = sorted
+            .iter()
+            .map(|ishoo| ishoo.id.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok((!output.is_empty()).then_some(output));
+    }
+
+    if sorted.is_empty() {
+        return Ok(Some(warning("No ishoos found")));
+    }
+
+    let all_refs = all_ishoos.iter().collect::<Vec<_>>();
+    let implicit_statuses = sorted
+        .iter()
+        .filter_map(|ishoo| {
+            store
+                .implicit_status(&ishoo.id)
+                .map(|(status, _)| (ishoo.id.clone(), status))
+        })
+        .collect::<HashMap<_, _>>();
+    let tree = build_tree(
+        &sorted,
+        &all_refs,
+        |items| sort_ishoo_refs(items, sort_mode, &config),
+        &implicit_statuses,
+    );
+
+    Ok(Some(render_tree(
+        &tree,
+        &config,
+        max_tree_id_width(&tree),
+        tree_has_tags(&tree),
+        detect_terminal_width(),
+    )))
+}
+
+fn validate_list_args(args: &ListArgs, config: &Config) -> Result<(), AppError> {
+    validate_named_filters(
+        "status",
+        args.status.iter().chain(args.no_status.iter()),
+        |value| config.is_valid_status(value),
+    )?;
+    validate_named_filters(
+        "type",
+        args.ishoo_type.iter().chain(args.no_type.iter()),
+        |value| config.is_valid_type(value),
+    )?;
+    validate_named_filters(
+        "priority",
+        args.priority.iter().chain(args.no_priority.iter()),
+        |value| config.is_valid_priority(value),
+    )?;
+    Ok(())
+}
+
+fn validate_named_filters<'a, I, F>(label: &str, values: I, mut is_valid: F) -> Result<(), AppError>
+where
+    I: IntoIterator<Item = &'a String>,
+    F: FnMut(&str) -> bool,
+{
+    for value in values {
+        if !is_valid(value) {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                format!("invalid {label}: {value}"),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn filter_ishoos<'a>(
+    all_ishoos: &'a [Ishoo],
+    store: &Store,
+    config: &Config,
+    args: &ListArgs,
+) -> Vec<&'a Ishoo> {
+    let normalized_parent = args
+        .parent
+        .as_deref()
+        .map(|parent| store.normalize_id(parent));
+    let search = args.search.as_deref().map(str::to_ascii_lowercase);
+
+    all_ishoos
+        .iter()
+        .filter(|ishoo| {
+            match_filters(
+                ishoo,
+                store,
+                config,
+                args,
+                normalized_parent.as_deref(),
+                search.as_deref(),
+            )
+        })
+        .collect()
+}
+
+fn match_filters(
+    ishoo: &Ishoo,
+    store: &Store,
+    config: &Config,
+    args: &ListArgs,
+    normalized_parent: Option<&str>,
+    search: Option<&str>,
+) -> bool {
+    let priority = ishoo.priority.as_deref().unwrap_or("normal");
+
+    if !args.status.is_empty() && !args.status.iter().any(|status| status == &ishoo.status) {
+        return false;
+    }
+    if args.no_status.iter().any(|status| status == &ishoo.status) {
+        return false;
+    }
+    if !args.ishoo_type.is_empty()
+        && !args
+            .ishoo_type
+            .iter()
+            .any(|ishoo_type| ishoo_type == &ishoo.ishoo_type)
+    {
+        return false;
+    }
+    if args
+        .no_type
+        .iter()
+        .any(|ishoo_type| ishoo_type == &ishoo.ishoo_type)
+    {
+        return false;
+    }
+    if !args.priority.is_empty() && !args.priority.iter().any(|candidate| candidate == priority) {
+        return false;
+    }
+    if args
+        .no_priority
+        .iter()
+        .any(|candidate| candidate == priority)
+    {
+        return false;
+    }
+    if !args.tag.is_empty() && !args.tag.iter().any(|tag| ishoo.has_tag(tag)) {
+        return false;
+    }
+    if args.no_tag.iter().any(|tag| ishoo.has_tag(tag)) {
+        return false;
+    }
+    if args.has_parent && ishoo.parent.is_none() {
+        return false;
+    }
+    if args.no_parent && ishoo.parent.is_some() {
+        return false;
+    }
+    if normalized_parent.is_some_and(|parent| ishoo.parent.as_deref() != Some(parent)) {
+        return false;
+    }
+    if args.has_blocking && ishoo.blocking.is_empty() {
+        return false;
+    }
+    if args.no_blocking && !ishoo.blocking.is_empty() {
+        return false;
+    }
+    if args.is_blocked && !store.is_blocked(&ishoo.id) {
+        return false;
+    }
+    if args.ready && !is_ready(ishoo, store, config) {
+        return false;
+    }
+    if search.is_some_and(|query| !matches_search(ishoo, query)) {
+        return false;
+    }
+
+    true
+}
+
+fn is_ready(ishoo: &Ishoo, store: &Store, config: &Config) -> bool {
+    ishoo.status != "in-progress"
+        && ishoo.status != "draft"
+        && !config.is_archive_status(&ishoo.status)
+        && !store.is_blocked(&ishoo.id)
+        && store.implicit_status(&ishoo.id).is_none()
+}
+
+fn matches_search(ishoo: &Ishoo, query: &str) -> bool {
+    ishoo.title.to_ascii_lowercase().contains(query)
+        || ishoo.slug.to_ascii_lowercase().contains(query)
+        || ishoo.body.to_ascii_lowercase().contains(query)
+}
+
+fn sort_ishoo_refs<'a>(
+    ishoos: &[&'a Ishoo],
+    sort_mode: SortMode,
+    config: &Config,
+) -> Vec<&'a Ishoo> {
+    let owned = ishoos
+        .iter()
+        .map(|ishoo| (*ishoo).clone())
+        .collect::<Vec<_>>();
+    let sorted = sort_ishoos(
+        &owned,
+        sort_mode,
+        &config.status_names(),
+        &config.priority_names(),
+        &config.type_names(),
+    );
+    let mut by_id = ishoos
+        .iter()
+        .map(|ishoo| (ishoo.id.as_str(), *ishoo))
+        .collect::<HashMap<_, _>>();
+
+    sorted
+        .into_iter()
+        .filter_map(|ishoo| by_id.remove(ishoo.id.as_str()))
+        .collect()
+}
+
+fn list_json_value(ishoo: &Ishoo, full: bool) -> Result<Value, AppError> {
+    let mut value = to_value(ishoo.to_json(&ishoo.etag())).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to serialize list output: {error}"),
+        )
+    })?;
+
+    if !full && let Some(object) = value.as_object_mut() {
+        object.remove("body");
+    }
+
+    Ok(value)
+}
+
+fn tree_has_tags(tree: &[crate::output::TreeNode<'_>]) -> bool {
+    tree.iter()
+        .any(|node| !node.ishoo.tags.is_empty() || tree_has_tags(&node.children))
+}
+
+fn max_tree_id_width(tree: &[crate::output::TreeNode<'_>]) -> usize {
+    tree.iter()
+        .map(|node| node.ishoo.id.len().max(max_tree_id_width(&node.children)))
+        .max()
+        .unwrap_or(0)
 }
 
 fn delete_command(args: DeleteArgs, json: bool) -> Result<Option<String>, AppError> {
@@ -1022,9 +1376,10 @@ fn json_output_error(message: String) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CheckArgs, Cli, Commands, CreateArgs, DeleteArgs, DeleteTarget, RoadmapArgs,
+        CheckArgs, Cli, Commands, CreateArgs, DeleteArgs, DeleteTarget, ListArgs, RoadmapArgs,
         STORE_GITIGNORE_CONTENT, archive_command, check_command, confirm_delete, create_command,
-        delete_command_with_io, init_command, prime_command, roadmap_command, run, version_output,
+        delete_command_with_io, init_command, list_command, prime_command, roadmap_command, run,
+        version_output,
     };
     use crate::config::{CONFIG_FILE_NAME, Config};
     use crate::core::store::{LinkRef, LinkType};
@@ -1123,6 +1478,62 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn write_test_ishoo(
+        root: &Path,
+        id: &str,
+        title: &str,
+        status: &str,
+        ishoo_type: &str,
+        priority: Option<&str>,
+        body: &str,
+        parent: Option<&str>,
+        blocking: &[&str],
+        blocked_by: &[&str],
+        tags: &[&str],
+    ) {
+        let mut content = format!(
+            "---\n# {id}\ntitle: {title}\nstatus: {status}\ntype: {ishoo_type}\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n"
+        );
+
+        if let Some(priority) = priority {
+            content.push_str(&format!("priority: {priority}\n"));
+        }
+        if !tags.is_empty() {
+            content.push_str("tags:\n");
+            for tag in tags {
+                content.push_str(&format!("  - {tag}\n"));
+            }
+        }
+        if let Some(parent) = parent {
+            content.push_str(&format!("parent: {parent}\n"));
+        }
+        if !blocking.is_empty() {
+            content.push_str("blocking:\n");
+            for blocked in blocking {
+                content.push_str(&format!("  - {blocked}\n"));
+            }
+        }
+        if !blocked_by.is_empty() {
+            content.push_str("blocked_by:\n");
+            for blocker in blocked_by {
+                content.push_str(&format!("  - {blocker}\n"));
+            }
+        }
+
+        content.push_str("---\n\n");
+        content.push_str(body);
+        content.push('\n');
+
+        fs::write(
+            root.join(format!(
+                "{id}--{}.md",
+                title.to_ascii_lowercase().replace(' ', "-")
+            )),
+            content,
+        )
+        .expect("ishoo file should be written");
     }
 
     #[test]
@@ -1319,6 +1730,312 @@ mod tests {
     }
 
     #[test]
+    fn list_command_json_filters_and_omits_body_by_default() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-alpha",
+            "Alpha task",
+            "todo",
+            "task",
+            Some("high"),
+            "Matches search body.",
+            None,
+            &[],
+            &[],
+            &["cli"],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-beta",
+            "Beta bug",
+            "todo",
+            "bug",
+            Some("normal"),
+            "Other body.",
+            None,
+            &[],
+            &[],
+            &["backend"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = list_command(
+            ListArgs {
+                status: vec!["todo".to_string()],
+                no_status: Vec::new(),
+                ishoo_type: vec!["task".to_string()],
+                no_type: Vec::new(),
+                priority: vec!["high".to_string()],
+                no_priority: Vec::new(),
+                tag: vec!["CLI".to_string()],
+                no_tag: Vec::new(),
+                has_parent: false,
+                no_parent: false,
+                parent: None,
+                has_blocking: false,
+                no_blocking: false,
+                is_blocked: false,
+                ready: false,
+                search: Some("matches".to_string()),
+                sort: Some(super::ListSortArg::Id),
+                quiet: false,
+                full: false,
+            },
+            true,
+        )
+        .expect("list command should succeed")
+        .expect("list command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["count"], Value::from(1));
+        assert_eq!(parsed["ishoos"][0]["id"], "ish-alpha");
+        assert!(parsed["ishoos"][0].get("body").is_none());
+    }
+
+    #[test]
+    fn list_command_full_json_includes_body() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-alpha",
+            "Alpha task",
+            "todo",
+            "task",
+            Some("normal"),
+            "Detailed body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = list_command(
+            ListArgs {
+                status: Vec::new(),
+                no_status: Vec::new(),
+                ishoo_type: Vec::new(),
+                no_type: Vec::new(),
+                priority: Vec::new(),
+                no_priority: Vec::new(),
+                tag: Vec::new(),
+                no_tag: Vec::new(),
+                has_parent: false,
+                no_parent: false,
+                parent: None,
+                has_blocking: false,
+                no_blocking: false,
+                is_blocked: false,
+                ready: false,
+                search: None,
+                sort: Some(super::ListSortArg::Id),
+                quiet: false,
+                full: true,
+            },
+            true,
+        )
+        .expect("list command should succeed")
+        .expect("list command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["ishoos"][0]["body"], "Detailed body.");
+    }
+
+    #[test]
+    fn list_command_ready_excludes_blocked_in_progress_archived_and_implicitly_completed() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-ready",
+            "Ready item",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "in-progress",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocked",
+            "Blocked item",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &["ish-blocker"],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-active",
+            "Active item",
+            "in-progress",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Completed parent",
+            "completed",
+            "feature",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-child",
+            "Child item",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            Some("ish-parent"),
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = list_command(
+            ListArgs {
+                status: Vec::new(),
+                no_status: Vec::new(),
+                ishoo_type: Vec::new(),
+                no_type: Vec::new(),
+                priority: Vec::new(),
+                no_priority: Vec::new(),
+                tag: Vec::new(),
+                no_tag: Vec::new(),
+                has_parent: false,
+                no_parent: false,
+                parent: None,
+                has_blocking: false,
+                no_blocking: false,
+                is_blocked: false,
+                ready: true,
+                search: None,
+                sort: Some(super::ListSortArg::Id),
+                quiet: true,
+                full: false,
+            },
+            false,
+        )
+        .expect("list command should succeed")
+        .expect("list command should print output");
+
+        assert_eq!(output.trim(), "ish-ready");
+    }
+
+    #[test]
+    fn list_command_human_output_renders_tree_with_context_parent() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-child",
+            "Child",
+            "todo",
+            "task",
+            Some("high"),
+            "Child body.",
+            Some("ish-parent"),
+            &[],
+            &[],
+            &["cli"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = list_command(
+            ListArgs {
+                status: Vec::new(),
+                no_status: Vec::new(),
+                ishoo_type: Vec::new(),
+                no_type: Vec::new(),
+                priority: Vec::new(),
+                no_priority: Vec::new(),
+                tag: vec!["cli".to_string()],
+                no_tag: Vec::new(),
+                has_parent: false,
+                no_parent: false,
+                parent: None,
+                has_blocking: false,
+                no_blocking: false,
+                is_blocked: false,
+                ready: false,
+                search: None,
+                sort: None,
+                quiet: false,
+                full: false,
+            },
+            false,
+        )
+        .expect("list command should succeed")
+        .expect("list command should print output");
+
+        assert!(output.contains("ish-parent"));
+        assert!(output.contains("ish-child"));
+        assert!(output.contains("└──"));
+    }
+
+    #[test]
     fn confirm_delete_prints_title_path_and_incoming_link_count() {
         let mut input = Cursor::new(b"yes\n".to_vec());
         let mut output = Vec::new();
@@ -1457,6 +2174,20 @@ mod tests {
                 assert!(!args.force);
             }
             _ => panic!("expected delete command"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_list_alias() {
+        let cli = Cli::try_parse_from(["ish", "ls", "--ready"])
+            .expect("list alias should parse successfully");
+
+        match cli.command {
+            Some(Commands::List(args)) => {
+                assert!(args.ready);
+                assert!(!args.quiet);
+            }
+            _ => panic!("expected list command"),
         }
     }
 
