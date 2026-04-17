@@ -1,11 +1,11 @@
 ---
 # ish-oewf
 title: Move command handlers into src/commands/ modules
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-04-17T19:01:36Z
-updated_at: 2026-04-17T19:02:06Z
+updated_at: 2026-04-17T19:22:25Z
 parent: ish-hqty
 blocked_by:
     - ish-t1q0
@@ -42,13 +42,24 @@ This is the largest structural extraction and should happen after the CLI arg an
 
 ## Success Criteria
 
-- [ ] `src/main.rs` no longer contains concrete command handler implementations.
-- [ ] `src/commands/` becomes the obvious home for command behavior.
-- [ ] Public interfaces between commands and app dispatch are simple and consistent.
+- [x] `src/main.rs` no longer contains concrete command handler implementations.
+- [x] `src/commands/` becomes the obvious home for command behavior.
+- [x] Public interfaces between commands and app dispatch are simple and consistent.
 
 ## Verification
 
-- [ ] `cargo test`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy -- -D warnings`
-- [ ] Smoke-check a representative set of commands: `ish list`, `ish show`, `ish create`, `ish check`, `ish roadmap`.
+- [x] `cargo test`
+- [x] `cargo fmt --all -- --check`
+- [x] `cargo clippy -- -D warnings`
+- [x] Smoke-check a representative set of commands: `ish list`, `ish show`, `ish create`, `ish check`, `ish roadmap`.
+
+## Summary of Changes
+
+- Added `src/commands/` with dedicated modules for archive, check, create, delete, init, list, prime, roadmap, show, update, and version behavior.
+- Updated `src/app/mod.rs` to dispatch directly through the new command layer instead of reaching into `main.rs`.
+- Reduced `src/main.rs` to module wiring, entrypoint logic, and existing tests, with test-only re-exports/helpers kept in place so behavior coverage stayed intact during the extraction.
+
+## Notes for Future Workers
+
+- `src/main.rs` is still large because the command integration tests remain there; the next slimming pass can move or redistribute those tests after the remaining refactor beans land.
+- `list` and `check` each now live in their own command modules, making the planned submodule split in `ish-ywbj` a localized follow-up rather than another `main.rs` extraction.
