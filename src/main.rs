@@ -18,7 +18,7 @@ use std::process::ExitCode;
 use crate::cli::prime_output;
 use crate::config::{CONFIG_FILE_NAME, Config, find_config};
 use crate::core::store::{
-    CreateIshoo, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError,
+    CreateIshoo, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError, UpdateIshoo,
 };
 use crate::core::{SortMode, sort_ishoos};
 use crate::model::ishoo::Ishoo;
@@ -53,6 +53,9 @@ enum Commands {
     /// List ishoos, optionally filtered and sorted.
     #[command(visible_alias = "ls")]
     List(ListArgs),
+    /// Update an existing ishoo.
+    #[command(visible_alias = "u")]
+    Update(UpdateArgs),
     /// Delete one or more ishoos.
     #[command(visible_alias = "rm")]
     Delete(DeleteArgs),
@@ -191,6 +194,73 @@ struct ListArgs {
     full: bool,
 }
 
+#[derive(clap::Args)]
+struct UpdateArgs {
+    /// ID of the ishoo to update.
+    id: String,
+    /// Set the status.
+    #[arg(short = 's', long = "status")]
+    status: Option<String>,
+    /// Set the ishoo type.
+    #[arg(short = 't', long = "type")]
+    ishoo_type: Option<String>,
+    /// Set the priority.
+    #[arg(short = 'p', long = "priority")]
+    priority: Option<String>,
+    /// Set the title.
+    #[arg(long = "title")]
+    title: Option<String>,
+    /// Replace the full body; use `-` to read from stdin.
+    #[arg(
+        short = 'd',
+        long = "body",
+        conflicts_with_all = ["body_file", "body_replace_old", "body_append"]
+    )]
+    body: Option<String>,
+    /// Read the full body from a file.
+    #[arg(
+        long = "body-file",
+        conflicts_with_all = ["body", "body_replace_old", "body_append"]
+    )]
+    body_file: Option<String>,
+    /// Replace this exact body text.
+    #[arg(long = "body-replace-old", requires = "body_replace_new")]
+    body_replace_old: Option<String>,
+    /// Replacement text for `--body-replace-old`.
+    #[arg(long = "body-replace-new", requires = "body_replace_old")]
+    body_replace_new: Option<String>,
+    /// Append text to the body; use `-` to read from stdin.
+    #[arg(long = "body-append", conflicts_with_all = ["body", "body_file"])]
+    body_append: Option<String>,
+    /// Set the parent ishoo ID.
+    #[arg(long = "parent", conflicts_with = "remove_parent")]
+    parent: Option<String>,
+    /// Remove the current parent relationship.
+    #[arg(long = "remove-parent", conflicts_with = "parent")]
+    remove_parent: bool,
+    /// Add a blocking relationship. May be repeated.
+    #[arg(long = "blocking")]
+    blocking: Vec<String>,
+    /// Remove a blocking relationship. May be repeated.
+    #[arg(long = "remove-blocking")]
+    remove_blocking: Vec<String>,
+    /// Add a blocked-by relationship. May be repeated.
+    #[arg(long = "blocked-by")]
+    blocked_by: Vec<String>,
+    /// Remove a blocked-by relationship. May be repeated.
+    #[arg(long = "remove-blocked-by")]
+    remove_blocked_by: Vec<String>,
+    /// Add a tag. May be repeated.
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    /// Remove a tag. May be repeated.
+    #[arg(long = "remove-tag")]
+    remove_tags: Vec<String>,
+    /// Require the current ETag to match before updating.
+    #[arg(long = "if-match")]
+    if_match: Option<String>,
+}
+
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 enum ListSortArg {
     Created,
@@ -286,6 +356,7 @@ fn run(cli: Cli) -> Result<RunOutcome, AppError> {
         Some(Commands::Init) => init_command(cli.json).map(success_outcome),
         Some(Commands::Create(args)) => create_command(args, cli.json).map(success_outcome),
         Some(Commands::List(args)) => list_command(args, cli.json).map(success_outcome),
+        Some(Commands::Update(args)) => update_command(args, cli.json).map(success_outcome),
         Some(Commands::Delete(args)) => delete_command(args, cli.json).map(success_outcome),
         Some(Commands::Archive) => archive_command(cli.json).map(success_outcome),
         Some(Commands::Check(args)) => check_command(args, cli.json),
@@ -440,6 +511,34 @@ fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> 
         tree_has_tags(&tree),
         detect_terminal_width(),
     )))
+}
+
+fn update_command(args: UpdateArgs, json: bool) -> Result<Option<String>, AppError> {
+    let changes = resolve_update_changes(args)?;
+    let (_, _, mut store) = load_store_from_current_dir()?;
+    let should_unarchive = store.is_archived(&changes.0).map_err(store_app_error)?;
+
+    if should_unarchive {
+        store
+            .load_and_unarchive(&changes.0)
+            .map_err(store_app_error)?;
+    }
+
+    let updated = store
+        .update(&changes.0, changes.1)
+        .map_err(store_app_error)?;
+
+    if json {
+        return Ok(Some(
+            output_success(updated.to_json(&updated.etag())).map_err(json_output_error)?,
+        ));
+    }
+
+    Ok(Some(success(&format!(
+        "Updated {} {}",
+        render_id(&updated.id),
+        muted(&updated.path)
+    ))))
 }
 
 fn validate_list_args(args: &ListArgs, config: &Config) -> Result<(), AppError> {
@@ -795,21 +894,70 @@ fn render_delete_success(deleted: &[Ishoo], cleaned_links: usize) -> String {
     success(&format!("Deleted {} ishoos{suffix}", deleted.len()))
 }
 
+fn resolve_update_changes(args: UpdateArgs) -> Result<(String, UpdateIshoo), AppError> {
+    let body = resolve_optional_body(args.body, args.body_file)?;
+    let body_append = resolve_optional_stdin_text(args.body_append, "body append")?;
+    let body_replace = args.body_replace_old.zip(args.body_replace_new);
+    let parent = if args.remove_parent {
+        Some(None)
+    } else {
+        args.parent.map(Some)
+    };
+    let priority = args.priority.map(|priority| {
+        if priority.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(priority)
+        }
+    });
+
+    let has_changes = args.status.is_some()
+        || args.ishoo_type.is_some()
+        || priority.is_some()
+        || args.title.is_some()
+        || body.is_some()
+        || body_replace.is_some()
+        || body_append.is_some()
+        || !args.tags.is_empty()
+        || !args.remove_tags.is_empty()
+        || parent.is_some()
+        || !args.blocking.is_empty()
+        || !args.remove_blocking.is_empty()
+        || !args.blocked_by.is_empty()
+        || !args.remove_blocked_by.is_empty();
+
+    if !has_changes {
+        return Err(AppError::new(ErrorCode::Validation, "no changes specified"));
+    }
+
+    Ok((
+        args.id,
+        UpdateIshoo {
+            status: args.status,
+            ishoo_type: args.ishoo_type,
+            priority,
+            title: args.title,
+            body,
+            body_replace,
+            body_append,
+            add_tags: args.tags,
+            remove_tags: args.remove_tags,
+            parent,
+            add_blocking: args.blocking,
+            remove_blocking: args.remove_blocking,
+            add_blocked_by: args.blocked_by,
+            remove_blocked_by: args.remove_blocked_by,
+            if_match: args.if_match,
+        },
+    ))
+}
+
 fn resolve_create_body(
     body: Option<String>,
     body_file: Option<String>,
 ) -> Result<String, AppError> {
     match (body, body_file) {
-        (Some(body), None) if body == "-" => {
-            let mut stdin = String::new();
-            io::stdin().read_to_string(&mut stdin).map_err(|error| {
-                AppError::new(
-                    ErrorCode::FileError,
-                    format!("failed to read body from stdin: {error}"),
-                )
-            })?;
-            Ok(stdin)
-        }
+        (Some(body), None) if body == "-" => read_from_stdin("body"),
         (Some(body), None) => Ok(body),
         (None, Some(path)) => fs::read_to_string(&path).map_err(|error| {
             AppError::new(
@@ -823,6 +971,58 @@ fn resolve_create_body(
             "`--body` and `--body-file` cannot be used together",
         )),
     }
+}
+
+fn resolve_optional_body(
+    body: Option<String>,
+    body_file: Option<String>,
+) -> Result<Option<String>, AppError> {
+    match (body, body_file) {
+        (Some(body), None) => Ok(Some(read_stdin_or_literal(body, "body")?)),
+        (None, Some(path)) => Ok(Some(fs::read_to_string(&path).map_err(|error| {
+            AppError::new(
+                ErrorCode::FileError,
+                format!("failed to read body file `{path}`: {error}"),
+            )
+        })?)),
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => Err(AppError::new(
+            ErrorCode::Validation,
+            "`--body` and `--body-file` cannot be used together",
+        )),
+    }
+}
+
+fn resolve_optional_stdin_text(
+    value: Option<String>,
+    label: &str,
+) -> Result<Option<String>, AppError> {
+    value
+        .map(|text| read_stdin_or_literal(text, label))
+        .transpose()
+}
+
+fn read_stdin_or_literal(value: String, label: &str) -> Result<String, AppError> {
+    if value != "-" {
+        return Ok(value);
+    }
+
+    read_from_stdin(label)
+}
+
+fn read_from_stdin(label: &str) -> Result<String, AppError> {
+    read_text_input(io::stdin(), label)
+}
+
+fn read_text_input<R: Read>(mut reader: R, label: &str) -> Result<String, AppError> {
+    let mut stdin = String::new();
+    reader.read_to_string(&mut stdin).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to read {label} from stdin: {error}"),
+        )
+    })?;
+    Ok(stdin)
 }
 
 fn prompt_io_error(error: io::Error) -> AppError {
@@ -1377,9 +1577,9 @@ fn json_output_error(message: String) -> AppError {
 mod tests {
     use super::{
         CheckArgs, Cli, Commands, CreateArgs, DeleteArgs, DeleteTarget, ListArgs, RoadmapArgs,
-        STORE_GITIGNORE_CONTENT, archive_command, check_command, confirm_delete, create_command,
-        delete_command_with_io, init_command, list_command, prime_command, roadmap_command, run,
-        version_output,
+        STORE_GITIGNORE_CONTENT, UpdateArgs, archive_command, check_command, confirm_delete,
+        create_command, delete_command_with_io, init_command, list_command, prime_command,
+        roadmap_command, run, update_command, version_output,
     };
     use crate::config::{CONFIG_FILE_NAME, Config};
     use crate::core::store::{LinkRef, LinkType};
@@ -2218,6 +2418,360 @@ mod tests {
 
         assert_eq!(error.code, crate::output::ErrorCode::Validation);
         assert!(error.message.contains("invalid status"));
+    }
+
+    #[test]
+    fn update_command_applies_field_changes_and_returns_json() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "todo",
+            "task",
+            Some("normal"),
+            "Blocker body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-dependency",
+            "Dependency",
+            "todo",
+            "task",
+            Some("normal"),
+            "Dependency body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-target",
+            "Original title",
+            "todo",
+            "task",
+            Some("normal"),
+            "Alpha target",
+            None,
+            &[],
+            &[],
+            &["old-tag"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = update_command(
+            UpdateArgs {
+                id: "target".to_string(),
+                status: Some("in-progress".to_string()),
+                ishoo_type: Some("bug".to_string()),
+                priority: Some("high".to_string()),
+                title: Some("Updated title".to_string()),
+                body: None,
+                body_file: None,
+                body_replace_old: Some("target".to_string()),
+                body_replace_new: Some("replacement".to_string()),
+                body_append: Some("Appended text".to_string()),
+                parent: Some("parent".to_string()),
+                remove_parent: false,
+                blocking: vec!["blocker".to_string()],
+                remove_blocking: Vec::new(),
+                blocked_by: vec!["dependency".to_string()],
+                remove_blocked_by: Vec::new(),
+                tags: vec!["new-tag".to_string()],
+                remove_tags: vec!["old-tag".to_string()],
+                if_match: None,
+            },
+            true,
+        )
+        .expect("update command should succeed")
+        .expect("update command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(
+            parsed["data"]["id"],
+            Value::String("ish-target".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["status"],
+            Value::String("in-progress".to_string())
+        );
+        assert_eq!(parsed["data"]["type"], Value::String("bug".to_string()));
+        assert_eq!(
+            parsed["data"]["priority"],
+            Value::String("high".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["title"],
+            Value::String("Updated title".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["body"],
+            Value::String("Alpha replacement\n\nAppended text".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["parent"],
+            Value::String("ish-parent".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["blocking"][0],
+            Value::String("ish-blocker".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["blocked_by"][0],
+            Value::String("ish-dependency".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["tags"][0],
+            Value::String("new-tag".to_string())
+        );
+        assert!(store_root.join("ish-target--updated-title.md").exists());
+        assert!(!store_root.join("ish-target--original-title.md").exists());
+    }
+
+    #[test]
+    fn update_command_supports_body_append_priority_none_and_relation_removals() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-target",
+            "Target",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            Some("ish-parent"),
+            &["ish-blocker"],
+            &["ish-dependency"],
+            &["cli"],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let changes = super::resolve_update_changes(UpdateArgs {
+            id: "target".to_string(),
+            status: None,
+            ishoo_type: None,
+            priority: Some("none".to_string()),
+            title: None,
+            body: None,
+            body_file: None,
+            body_replace_old: None,
+            body_replace_new: None,
+            body_append: Some("From stdin".to_string()),
+            parent: None,
+            remove_parent: true,
+            blocking: Vec::new(),
+            remove_blocking: vec!["blocker".to_string()],
+            blocked_by: Vec::new(),
+            remove_blocked_by: vec!["dependency".to_string()],
+            tags: Vec::new(),
+            remove_tags: vec!["cli".to_string()],
+            if_match: None,
+        })
+        .expect("changes should resolve");
+
+        let (_, _, mut store) = super::load_store_from_current_dir().expect("store should load");
+        let updated = store
+            .update(&changes.0, changes.1)
+            .expect("store update should succeed");
+
+        assert_eq!(updated.priority, None);
+        assert_eq!(updated.parent, None);
+        assert!(updated.blocking.is_empty());
+        assert!(updated.blocked_by.is_empty());
+        assert!(updated.tags.is_empty());
+        assert_eq!(updated.body, "Body.\n\nFrom stdin");
+    }
+
+    #[test]
+    fn read_text_input_reads_body_append_from_stdin() {
+        let value = super::read_text_input(Cursor::new(b"stdin body\n".to_vec()), "body append")
+            .expect("stdin text should be read");
+
+        assert_eq!(value, "stdin body\n");
+    }
+
+    #[test]
+    fn update_command_rejects_when_no_changes_specified() {
+        let error = super::resolve_update_changes(UpdateArgs {
+            id: "target".to_string(),
+            status: None,
+            ishoo_type: None,
+            priority: None,
+            title: None,
+            body: None,
+            body_file: None,
+            body_replace_old: None,
+            body_replace_new: None,
+            body_append: None,
+            parent: None,
+            remove_parent: false,
+            blocking: Vec::new(),
+            remove_blocking: Vec::new(),
+            blocked_by: Vec::new(),
+            remove_blocked_by: Vec::new(),
+            tags: Vec::new(),
+            remove_tags: Vec::new(),
+            if_match: None,
+        })
+        .expect_err("missing updates should fail");
+
+        assert_eq!(error.code, crate::output::ErrorCode::Validation);
+        assert_eq!(error.message, "no changes specified");
+    }
+
+    #[test]
+    fn update_command_reports_etag_conflict() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-target",
+            "Target",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let error = update_command(
+            UpdateArgs {
+                id: "target".to_string(),
+                status: Some("in-progress".to_string()),
+                ishoo_type: None,
+                priority: None,
+                title: None,
+                body: None,
+                body_file: None,
+                body_replace_old: None,
+                body_replace_new: None,
+                body_append: None,
+                parent: None,
+                remove_parent: false,
+                blocking: Vec::new(),
+                remove_blocking: Vec::new(),
+                blocked_by: Vec::new(),
+                remove_blocked_by: Vec::new(),
+                tags: Vec::new(),
+                remove_tags: Vec::new(),
+                if_match: Some("deadbeefdeadbeef".to_string()),
+            },
+            false,
+        )
+        .expect_err("etag mismatch should fail");
+
+        assert_eq!(error.code, crate::output::ErrorCode::Conflict);
+        assert!(error.message.contains("etag mismatch"));
+    }
+
+    #[test]
+    fn update_command_auto_unarchives_before_updating() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let archive_root = temp.path().join(".ish").join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        write_test_ishoo(
+            &archive_root,
+            "ish-target",
+            "Archived title",
+            "completed",
+            "task",
+            Some("normal"),
+            "Archived body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = update_command(
+            UpdateArgs {
+                id: "target".to_string(),
+                status: Some("todo".to_string()),
+                ishoo_type: None,
+                priority: None,
+                title: Some("Restored title".to_string()),
+                body: None,
+                body_file: None,
+                body_replace_old: None,
+                body_replace_new: None,
+                body_append: None,
+                parent: None,
+                remove_parent: false,
+                blocking: Vec::new(),
+                remove_blocking: Vec::new(),
+                blocked_by: Vec::new(),
+                remove_blocked_by: Vec::new(),
+                tags: Vec::new(),
+                remove_tags: Vec::new(),
+                if_match: None,
+            },
+            false,
+        )
+        .expect("update command should succeed")
+        .expect("update command should print output");
+
+        assert!(output.contains("Updated"));
+        assert!(
+            temp.path()
+                .join(".ish/ish-target--restored-title.md")
+                .exists()
+        );
+        assert!(
+            !temp
+                .path()
+                .join(".ish/archive/ish-target--archived-title.md")
+                .exists()
+        );
     }
 
     #[test]
