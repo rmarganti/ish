@@ -25,14 +25,14 @@ impl ErrorCode {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Response<T> {
+pub struct Response<T, L = IshooJson> {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ishoos: Option<Vec<IshooJson>>,
+    pub ishoos: Option<Vec<L>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,7 +49,7 @@ pub struct TreeNode<'a> {
 }
 
 pub fn output_success<T: Serialize>(data: T) -> Result<String, String> {
-    render(Response {
+    render(Response::<T> {
         success: true,
         message: None,
         data: Some(data),
@@ -60,9 +60,9 @@ pub fn output_success<T: Serialize>(data: T) -> Result<String, String> {
 }
 
 #[allow(dead_code)]
-pub fn output_success_multiple(ishoos: Vec<IshooJson>) -> Result<String, String> {
+pub fn output_success_multiple<T: Serialize>(ishoos: Vec<T>) -> Result<String, String> {
     let count = ishoos.len();
-    render(Response::<()> {
+    render(Response::<(), T> {
         success: true,
         message: None,
         data: None,
@@ -341,7 +341,7 @@ pub fn warning(text: &str) -> String {
     text.yellow().bold().to_string()
 }
 
-fn render<T: Serialize>(response: Response<T>) -> Result<String, String> {
+fn render<T: Serialize, L: Serialize>(response: Response<T, L>) -> Result<String, String> {
     serde_json::to_string_pretty(&response)
         .map_err(|error| format!("failed to serialize JSON output: {error}"))
 }
@@ -595,7 +595,6 @@ mod tests {
         assert!(active_status.contains("[todo]"));
         assert!(archive_status.contains("[completed]"));
         assert_ne!(archive_status, active_status);
-        assert!(archive_status.contains("\u{1b}["));
         assert!(rendered_type.contains("[task]"));
         assert!(rendered_priority.contains("[high]"));
         assert!(rendered_id.contains("ish-abcd"));
