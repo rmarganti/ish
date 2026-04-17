@@ -1,3 +1,4 @@
+mod app;
 mod cli;
 mod config;
 mod core;
@@ -15,11 +16,17 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::app::{
+    AppContext, AppError, RunOutcome, classify_app_error, current_dir, json_output_error, run,
+    store_app_error,
+};
+#[cfg(test)]
+use crate::cli::Commands;
 use crate::cli::{
-    CheckArgs, Cli, Commands, CreateArgs, DeleteArgs, ListArgs, ListSortArg, RoadmapArgs, ShowArgs,
+    CheckArgs, Cli, CreateArgs, DeleteArgs, ListArgs, ListSortArg, RoadmapArgs, ShowArgs,
     UpdateArgs, prime_output,
 };
-use crate::config::{CONFIG_FILE_NAME, Config, find_config};
+use crate::config::{CONFIG_FILE_NAME, Config};
 use crate::core::store::{
     CreateIshoo, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError, UpdateIshoo,
 };
@@ -50,27 +57,7 @@ struct DeleteJson {
     cleaned_links: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AppError {
-    code: ErrorCode,
-    message: String,
-}
-
-struct RunOutcome {
-    output: Option<String>,
-    exit_code: ExitCode,
-}
-
-impl AppError {
-    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-}
-
-fn version_output() -> String {
+pub(crate) fn version_output() -> String {
     format!("ish {}", env!("CARGO_PKG_VERSION"))
 }
 
@@ -96,80 +83,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<RunOutcome, AppError> {
-    match cli.command {
-        Some(Commands::Init) => init_command(cli.json).map(success_outcome),
-        Some(Commands::Create(args)) => create_command(args, cli.json).map(success_outcome),
-        Some(Commands::List(args)) => list_command(args, cli.json).map(success_outcome),
-        Some(Commands::Update(args)) => update_command(args, cli.json).map(success_outcome),
-        Some(Commands::Show(args)) => show_command(args, cli.json).map(success_outcome),
-        Some(Commands::Delete(args)) => delete_command(args, cli.json).map(success_outcome),
-        Some(Commands::Archive) => archive_command(cli.json).map(success_outcome),
-        Some(Commands::Check(args)) => check_command(args, cli.json),
-        Some(Commands::Prime) => prime_command(cli.json).map(success_outcome),
-        Some(Commands::Roadmap(args)) => roadmap_command(args, cli.json).map(success_outcome),
-        Some(Commands::Version) => {
-            if cli.json {
-                Ok(success_outcome(Some(
-                    output_message(version_output()).map_err(json_output_error)?,
-                )))
-            } else {
-                Ok(success_outcome(Some(version_output())))
-            }
-        }
-        None => {
-            let message = "ish: no command specified. Run `ish --help` for usage.";
-            if cli.json {
-                Ok(success_outcome(Some(output_error(
-                    ErrorCode::Validation,
-                    message,
-                ))))
-            } else {
-                Ok(success_outcome(Some(warning(message))))
-            }
-        }
-    }
-}
-
-fn success_outcome(output: Option<String>) -> RunOutcome {
-    RunOutcome {
-        output,
-        exit_code: ExitCode::SUCCESS,
-    }
-}
-
-fn create_command(args: CreateArgs, json: bool) -> Result<Option<String>, AppError> {
-    let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to determine current directory: {error}"),
-        )
-    })?;
-    let Some(config_path) = find_config(&current_dir) else {
-        return Err(AppError::new(
-            ErrorCode::NotFound,
-            "no `.ish.yml` found in the current directory or its parents",
-        ));
-    };
-
-    let config = Config::load(&config_path).map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to load `{}`: {error}", config_path.display()),
-        )
-    })?;
-
-    let store_root = config_path
-        .parent()
-        .ok_or_else(|| {
-            AppError::new(
-                ErrorCode::FileError,
-                format!("invalid config path: {}", config_path.display()),
-            )
-        })?
-        .join(&config.ish.path);
-    let mut store = Store::new(&store_root, config).map_err(store_open_error(&store_root))?;
-    store.load().map_err(store_open_error(&store_root))?;
+pub(crate) fn create_command(args: CreateArgs, json: bool) -> Result<Option<String>, AppError> {
+    let context = AppContext::load()?;
+    let mut store = context.store;
 
     let ishoo = store
         .create(CreateIshoo {
@@ -199,8 +115,10 @@ fn create_command(args: CreateArgs, json: bool) -> Result<Option<String>, AppErr
     ))))
 }
 
-fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> {
-    let (_, config, store) = load_store_from_current_dir()?;
+pub(crate) fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> {
+    let context = AppContext::load()?;
+    let config = context.config;
+    let store = context.store;
     validate_list_args(&args, &config)?;
 
     let all_ishoos = store.all().into_iter().cloned().collect::<Vec<_>>();
@@ -259,8 +177,10 @@ fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> 
     )))
 }
 
-fn show_command(args: ShowArgs, json: bool) -> Result<Option<String>, AppError> {
-    let (_, config, store) = load_store_from_current_dir()?;
+pub(crate) fn show_command(args: ShowArgs, json: bool) -> Result<Option<String>, AppError> {
+    let context = AppContext::load()?;
+    let config = context.config;
+    let store = context.store;
     let ishoos = resolve_show_ishoos(&store, &args.ids)?;
 
     if json {
@@ -415,9 +335,9 @@ fn format_relationships(label: &str, values: &[String]) -> String {
     }
 }
 
-fn update_command(args: UpdateArgs, json: bool) -> Result<Option<String>, AppError> {
+pub(crate) fn update_command(args: UpdateArgs, json: bool) -> Result<Option<String>, AppError> {
     let changes = resolve_update_changes(args)?;
-    let (_, _, mut store) = load_store_from_current_dir()?;
+    let mut store = AppContext::load()?.store;
     let should_unarchive = store.is_archived(&changes.0).map_err(store_app_error)?;
 
     if should_unarchive {
@@ -649,7 +569,7 @@ fn max_tree_id_width(tree: &[crate::output::TreeNode<'_>]) -> usize {
         .unwrap_or(0)
 }
 
-fn delete_command(args: DeleteArgs, json: bool) -> Result<Option<String>, AppError> {
+pub(crate) fn delete_command(args: DeleteArgs, json: bool) -> Result<Option<String>, AppError> {
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     delete_command_with_io(args, json, &mut stdin, &mut stdout)
@@ -934,13 +854,8 @@ fn prompt_io_error(error: io::Error) -> AppError {
     )
 }
 
-fn init_command(json: bool) -> Result<Option<String>, AppError> {
-    let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to determine current directory: {error}"),
-        )
-    })?;
+pub(crate) fn init_command(json: bool) -> Result<Option<String>, AppError> {
+    let current_dir = current_dir()?;
     let project_name = project_name(&current_dir)?;
 
     fs::create_dir_all(current_dir.join(STORE_DIRECTORY)).map_err(|error| {
@@ -985,8 +900,8 @@ fn init_command(json: bool) -> Result<Option<String>, AppError> {
     }
 }
 
-fn archive_command(json: bool) -> Result<Option<String>, AppError> {
-    let (_, _, mut store) = load_store_from_current_dir()?;
+pub(crate) fn archive_command(json: bool) -> Result<Option<String>, AppError> {
+    let mut store = AppContext::load()?.store;
     let archived = store.archive_all_completed().map_err(|error| {
         AppError::new(
             ErrorCode::FileError,
@@ -1015,8 +930,10 @@ fn archive_command(json: bool) -> Result<Option<String>, AppError> {
     }
 }
 
-fn check_command(args: CheckArgs, json: bool) -> Result<RunOutcome, AppError> {
-    let (_, config, mut store) = load_store_from_current_dir()?;
+pub(crate) fn check_command(args: CheckArgs, json: bool) -> Result<RunOutcome, AppError> {
+    let context = AppContext::load()?;
+    let config = context.config;
+    let mut store = context.store;
     let config_checks = validate_config(&config);
     let initial_links = store.check_all_links();
     let issues_found = config_checks.issue_count() + link_issue_count(&initial_links);
@@ -1067,8 +984,8 @@ fn project_name(dir: &Path) -> Result<String, AppError> {
         })
 }
 
-fn roadmap_command(args: RoadmapArgs, json: bool) -> Result<Option<String>, AppError> {
-    let (current_dir, _, _) = load_store_from_current_dir()?;
+pub(crate) fn roadmap_command(args: RoadmapArgs, json: bool) -> Result<Option<String>, AppError> {
+    let current_dir = AppContext::load()?.current_dir;
 
     let output = roadmap_output(
         &current_dir,
@@ -1099,23 +1016,10 @@ fn roadmap_command(args: RoadmapArgs, json: bool) -> Result<Option<String>, AppE
     }
 }
 
-fn prime_command(json: bool) -> Result<Option<String>, AppError> {
-    let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to determine current directory: {error}"),
-        )
-    })?;
-    let Some(config_path) = find_config(&current_dir) else {
+pub(crate) fn prime_command(json: bool) -> Result<Option<String>, AppError> {
+    let Some((_, config)) = crate::app::load_config_from_current_dir()? else {
         return Ok(None);
     };
-
-    let config = Config::load(&config_path).map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to load `{}`: {error}", config_path.display()),
-        )
-    })?;
 
     let output = prime_output(&config);
     if json {
@@ -1126,48 +1030,8 @@ fn prime_command(json: bool) -> Result<Option<String>, AppError> {
 }
 
 fn load_store_from_current_dir() -> Result<(std::path::PathBuf, Config, Store), AppError> {
-    let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to determine current directory: {error}"),
-        )
-    })?;
-    let Some(config_path) = find_config(&current_dir) else {
-        return Err(AppError::new(
-            ErrorCode::NotFound,
-            "no `.ish.yml` found in the current directory or its parents",
-        ));
-    };
-
-    let config = Config::load(&config_path).map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to load `{}`: {error}", config_path.display()),
-        )
-    })?;
-    let store_root = config_path
-        .parent()
-        .ok_or_else(|| {
-            AppError::new(
-                ErrorCode::FileError,
-                format!("invalid config path: {}", config_path.display()),
-            )
-        })?
-        .join(&config.ish.path);
-    let mut store = Store::new(&store_root, config.clone()).map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to open store `{}`: {error}", store_root.display()),
-        )
-    })?;
-    store.load().map_err(|error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to load store `{}`: {error}", store_root.display()),
-        )
-    })?;
-
-    Ok((current_dir, config, store))
+    let context = AppContext::load()?;
+    Ok((context.current_dir, context.config, context.store))
 }
 
 #[derive(Debug, Clone)]
@@ -1426,53 +1290,6 @@ fn cycle_json(cycle: &LinkCycle) -> Value {
         "link_type": link_type_label(cycle.link_type),
         "path": cycle.path,
     })
-}
-
-fn classify_app_error(message: String) -> AppError {
-    let code = if message.contains("no `.ish.yml` found") {
-        ErrorCode::NotFound
-    } else if message.contains("etag") || message.contains("conflict") {
-        ErrorCode::Conflict
-    } else if message.contains("invalid") {
-        ErrorCode::Validation
-    } else {
-        ErrorCode::FileError
-    };
-
-    AppError::new(code, message)
-}
-
-fn store_open_error(store_root: &Path) -> impl Fn(StoreError) -> AppError + '_ {
-    move |error| {
-        AppError::new(
-            ErrorCode::FileError,
-            format!("failed to open store `{}`: {error}", store_root.display()),
-        )
-    }
-}
-
-fn store_app_error(error: StoreError) -> AppError {
-    let code = match error {
-        StoreError::InvalidStatus(_)
-        | StoreError::InvalidType(_)
-        | StoreError::InvalidPriority(_)
-        | StoreError::InvalidTag(_)
-        | StoreError::ParentNotAllowed(_)
-        | StoreError::InvalidParentType { .. }
-        | StoreError::Body(_) => ErrorCode::Validation,
-        StoreError::NotFound(_) => ErrorCode::NotFound,
-        StoreError::ETagMismatch { .. } => ErrorCode::Conflict,
-        StoreError::Io(_)
-        | StoreError::InvalidPath(_)
-        | StoreError::InvalidFrontmatter(_)
-        | StoreError::Yaml { .. } => ErrorCode::FileError,
-    };
-
-    AppError::new(code, error.to_string())
-}
-
-fn json_output_error(message: String) -> AppError {
-    AppError::new(ErrorCode::FileError, message)
 }
 
 #[cfg(test)]
@@ -2486,6 +2303,61 @@ mod tests {
             }
             _ => panic!("expected show command"),
         }
+    }
+
+    #[test]
+    fn run_dispatches_list_command_through_app_layer() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        fs::create_dir_all(temp.path().join(".ish")).expect("store dir should be created");
+        write_test_ishoo(
+            &temp.path().join(".ish"),
+            "ish-abcd",
+            "From run",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = run(Cli {
+            json: true,
+            command: Some(Commands::List(ListArgs {
+                status: Vec::new(),
+                no_status: Vec::new(),
+                ishoo_type: Vec::new(),
+                no_type: Vec::new(),
+                priority: Vec::new(),
+                no_priority: Vec::new(),
+                tag: Vec::new(),
+                no_tag: Vec::new(),
+                has_parent: false,
+                no_parent: false,
+                parent: None,
+                has_blocking: false,
+                no_blocking: false,
+                is_blocked: false,
+                ready: false,
+                search: None,
+                sort: None,
+                quiet: false,
+                full: false,
+            })),
+        })
+        .expect("run should succeed")
+        .output
+        .expect("list output should be present");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["count"], Value::from(1));
+        assert_eq!(parsed["ishoos"][0]["id"], "ish-abcd");
     }
 
     #[test]
