@@ -13,7 +13,9 @@ use std::process::ExitCode;
 
 use crate::cli::prime_output;
 use crate::config::{CONFIG_FILE_NAME, Config, find_config};
-use crate::output::{ErrorCode, output_error, output_message, output_success};
+use crate::output::{
+    ErrorCode, danger, output_error, output_message, output_success, success, warning,
+};
 use crate::roadmap::{RoadmapOptions, roadmap_output};
 
 const STORE_DIRECTORY: &str = ".ish";
@@ -95,7 +97,7 @@ fn main() -> ExitCode {
             if json {
                 println!("{}", output_error(error.code, error.message));
             } else {
-                eprintln!("ish: {}", error.message);
+                eprintln!("{}", danger(&format!("ish: {}", error.message)));
             }
             ExitCode::FAILURE
         }
@@ -121,7 +123,7 @@ fn run(cli: Cli) -> Result<Option<String>, AppError> {
             if cli.json {
                 Ok(Some(output_error(ErrorCode::Validation, message)))
             } else {
-                Ok(Some(message.to_string()))
+                Ok(Some(warning(message)))
             }
         }
     }
@@ -174,7 +176,7 @@ fn init_command(json: bool) -> Result<Option<String>, AppError> {
     if json {
         Ok(Some(output_message(message).map_err(json_output_error)?))
     } else {
-        Ok(Some(message))
+        Ok(Some(success(&message)))
     }
 }
 
