@@ -1,11 +1,11 @@
 ---
 # ish-bpxr
 title: Markdown body rendering for show command
-status: in-progress
+status: todo
 type: task
 priority: normal
 created_at: 2026-04-17T13:33:58Z
-updated_at: 2026-04-17T16:10:53Z
+updated_at: 2026-04-17T18:23:35Z
 parent: ish-1of2
 blocked_by:
     - ish-0iv6

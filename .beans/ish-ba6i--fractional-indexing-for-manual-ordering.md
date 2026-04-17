@@ -1,11 +1,11 @@
 ---
 # ish-ba6i
 title: Fractional indexing for manual ordering
-status: in-progress
+status: todo
 type: task
 priority: normal
 created_at: 2026-04-17T13:31:37Z
-updated_at: 2026-04-17T15:24:24Z
+updated_at: 2026-04-17T18:23:35Z
 parent: ish-4qx4
 blocked_by:
     - ish-0iv6
