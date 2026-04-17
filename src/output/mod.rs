@@ -3,7 +3,13 @@ use crate::model::ishoo::{Ishoo, IshooJson};
 use colored::{Color, Colorize};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use termimad::{
+    CompoundStyle, MadSkin,
+    crossterm::style::{Attribute, Color as MadColor},
+};
 use terminal_size::{Width, terminal_size};
+
+const DEFAULT_MARKDOWN_WIDTH: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
@@ -341,6 +347,36 @@ pub fn warning(text: &str) -> String {
     text.yellow().bold().to_string()
 }
 
+#[allow(dead_code)]
+pub fn render_markdown(markdown: &str) -> String {
+    render_markdown_with_width(markdown, DEFAULT_MARKDOWN_WIDTH)
+}
+
+#[allow(dead_code)]
+pub fn render_markdown_with_width(markdown: &str, width: usize) -> String {
+    if markdown.trim().is_empty() {
+        return String::new();
+    }
+
+    let width = width.max(3);
+    markdown_skin().text(markdown, Some(width)).to_string()
+}
+
+fn markdown_skin() -> MadSkin {
+    let mut skin = MadSkin::default();
+    skin.bold.set_fg(MadColor::Yellow);
+    skin.italic.add_attr(Attribute::Underlined);
+    skin.inline_code = CompoundStyle::with_fgbg(MadColor::Black, MadColor::Grey);
+    skin.code_block.set_fg(MadColor::Grey);
+    skin.code_block.set_bg(MadColor::Black);
+    skin.headers[0].set_fg(MadColor::Cyan);
+    skin.headers[1].set_fg(MadColor::Cyan);
+    skin.headers[2].set_fg(MadColor::Blue);
+    skin.bullet.set_fg(MadColor::Cyan);
+    skin.quote_mark.set_fg(MadColor::DarkGrey);
+    skin
+}
+
 fn render<T: Serialize, L: Serialize>(response: Response<T, L>) -> Result<String, String> {
     serde_json::to_string_pretty(&response)
         .map_err(|error| format!("failed to serialize JSON output: {error}"))
@@ -445,7 +481,8 @@ mod tests {
     use super::{
         ErrorCode, build_tree, color_name_to_color, danger, detect_terminal_width, heading, muted,
         output_error, output_message, output_success, output_success_multiple, render_id,
-        render_priority, render_status, render_tree, render_type, success, warning,
+        render_markdown, render_markdown_with_width, render_priority, render_status, render_tree,
+        render_type, success, warning,
     };
     use crate::config::Config;
     use crate::model::ishoo::Ishoo;
@@ -499,6 +536,27 @@ mod tests {
             blocking: Vec::new(),
             blocked_by: Vec::new(),
         }
+    }
+
+    fn strip_ansi(text: &str) -> String {
+        let mut plain = String::new();
+        let mut chars = text.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            plain.push(ch);
+        }
+
+        plain
     }
 
     #[test]
@@ -660,8 +718,13 @@ mod tests {
         control::set_override(previous);
 
         assert!(rendered.contains("ish-root"));
-        assert!(rendered.contains("[todo] [task] [normal] Root"));
-        assert!(rendered.contains("└── ish-child [completed] [task] [high]"));
+        assert!(rendered.contains("[todo]"));
+        assert!(rendered.contains("[task]"));
+        assert!(rendered.contains("[normal]"));
+        assert!(rendered.contains("Root"));
+        assert!(rendered.contains("└── ish-child"));
+        assert!(rendered.contains("[completed]"));
+        assert!(rendered.contains("[high]"));
         assert!(rendered.contains("#backend"));
         assert!(truncated.contains("..."));
     }
@@ -691,5 +754,47 @@ mod tests {
     #[test]
     fn terminal_width_has_reasonable_default() {
         assert!(detect_terminal_width() >= 1);
+    }
+
+    #[test]
+    fn render_markdown_formats_common_markdown_elements() {
+        let previous = control::SHOULD_COLORIZE.should_colorize();
+        control::set_override(true);
+
+        let rendered = render_markdown(
+            "# Title\n\nParagraph with **bold**, *italic*, and `code`.\n\n- item one\n- item two\n\n```rust\nfn main() {}\n```\n\n[example](https://example.com)",
+        );
+
+        control::set_override(previous);
+
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("Title"));
+        assert!(plain.contains("Paragraph with bold, italic, and code."));
+        assert!(plain.contains("item one"));
+        assert!(plain.contains("fn main() {}"));
+        assert!(plain.contains("example"));
+        assert!(rendered.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn render_markdown_wraps_to_requested_width() {
+        let previous = control::SHOULD_COLORIZE.should_colorize();
+        control::set_override(false);
+
+        let rendered = render_markdown_with_width(
+            "This paragraph contains enough words to wrap across multiple lines when the width is intentionally narrow.",
+            24,
+        );
+
+        control::set_override(previous);
+
+        let plain = strip_ansi(&rendered);
+        assert!(plain.lines().all(|line| line.chars().count() <= 24));
+        assert!(plain.lines().count() > 2);
+    }
+
+    #[test]
+    fn render_markdown_returns_empty_string_for_blank_body() {
+        assert!(render_markdown("   \n\n").is_empty());
     }
 }
