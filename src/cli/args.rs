@@ -1,0 +1,280 @@
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
+use crate::core::SortMode;
+
+/// A terminal-based issue tracker.
+#[derive(Parser)]
+#[command(name = "ish", version, about)]
+pub struct Cli {
+    /// Output structured JSON.
+    #[arg(long, global = true)]
+    pub json: bool,
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Initialize a new ish project in the current directory.
+    Init,
+    /// Create a new ishoo markdown file.
+    Create(CreateArgs),
+    /// List ishoos, optionally filtered and sorted.
+    #[command(visible_alias = "ls")]
+    List(ListArgs),
+    /// Update an existing ishoo.
+    #[command(visible_alias = "u")]
+    Update(UpdateArgs),
+    /// Show one or more ishoos in detail.
+    Show(ShowArgs),
+    /// Delete one or more ishoos.
+    #[command(visible_alias = "rm")]
+    Delete(DeleteArgs),
+    /// Move completed and scrapped ishoos to the archive directory.
+    Archive,
+    /// Validate configuration and link integrity.
+    Check(CheckArgs),
+    /// Print AI-agent guidance for the current ish project.
+    Prime,
+    /// Generate a roadmap from milestone and epic hierarchy.
+    Roadmap(RoadmapArgs),
+    /// Print the current ish version.
+    Version,
+}
+
+#[derive(Args)]
+pub struct RoadmapArgs {
+    /// Include completed and scrapped items.
+    #[arg(long)]
+    pub include_done: bool,
+    /// Filter milestones by status.
+    #[arg(long = "status")]
+    pub status: Vec<String>,
+    /// Exclude milestones by status.
+    #[arg(long = "no-status")]
+    pub no_status: Vec<String>,
+    /// Render plain IDs instead of markdown links.
+    #[arg(long)]
+    pub no_links: bool,
+    /// Override the link prefix used in markdown links.
+    #[arg(long)]
+    pub link_prefix: Option<String>,
+}
+
+#[derive(Args)]
+pub struct CheckArgs {
+    /// Fix broken links and self-references.
+    #[arg(long)]
+    pub fix: bool,
+}
+
+#[derive(Args)]
+pub struct CreateArgs {
+    /// Title for the new ishoo.
+    pub title: Option<String>,
+    /// Override the initial status.
+    #[arg(short = 's', long = "status")]
+    pub status: Option<String>,
+    /// Override the ishoo type.
+    #[arg(short = 't', long = "type")]
+    pub ishoo_type: Option<String>,
+    /// Override the priority.
+    #[arg(short = 'p', long = "priority")]
+    pub priority: Option<String>,
+    /// Inline body text; use `-` to read from stdin.
+    #[arg(short = 'd', long = "body", conflicts_with = "body_file")]
+    pub body: Option<String>,
+    /// Read body text from a file.
+    #[arg(long = "body-file", conflicts_with = "body")]
+    pub body_file: Option<String>,
+    /// Add a tag. May be repeated.
+    #[arg(long = "tag")]
+    pub tags: Vec<String>,
+    /// Set the parent ishoo ID.
+    #[arg(long = "parent")]
+    pub parent: Option<String>,
+    /// Add a blocking relationship. May be repeated.
+    #[arg(long = "blocking")]
+    pub blocking: Vec<String>,
+    /// Add a blocked-by relationship. May be repeated.
+    #[arg(long = "blocked-by")]
+    pub blocked_by: Vec<String>,
+    /// Override the ID prefix for the created ishoo.
+    #[arg(long = "prefix")]
+    pub prefix: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ListArgs {
+    /// Filter by status. May be repeated.
+    #[arg(short = 's', long = "status")]
+    pub status: Vec<String>,
+    /// Exclude statuses. May be repeated.
+    #[arg(long = "no-status")]
+    pub no_status: Vec<String>,
+    /// Filter by type. May be repeated.
+    #[arg(short = 't', long = "type")]
+    pub ishoo_type: Vec<String>,
+    /// Exclude types. May be repeated.
+    #[arg(long = "no-type")]
+    pub no_type: Vec<String>,
+    /// Filter by priority. May be repeated.
+    #[arg(short = 'p', long = "priority")]
+    pub priority: Vec<String>,
+    /// Exclude priorities. May be repeated.
+    #[arg(long = "no-priority")]
+    pub no_priority: Vec<String>,
+    /// Match any tag. May be repeated.
+    #[arg(long = "tag")]
+    pub tag: Vec<String>,
+    /// Exclude any matching tag. May be repeated.
+    #[arg(long = "no-tag")]
+    pub no_tag: Vec<String>,
+    /// Only include ishoos with a parent.
+    #[arg(long, conflicts_with_all = ["no_parent", "parent"])]
+    pub has_parent: bool,
+    /// Only include ishoos without a parent.
+    #[arg(long, conflicts_with_all = ["has_parent", "parent"])]
+    pub no_parent: bool,
+    /// Only include children of the specified parent.
+    #[arg(long = "parent", conflicts_with_all = ["has_parent", "no_parent"])]
+    pub parent: Option<String>,
+    /// Only include ishoos that block other ishoos.
+    #[arg(long, conflicts_with = "no_blocking")]
+    pub has_blocking: bool,
+    /// Only include ishoos with no blocking links.
+    #[arg(long, conflicts_with = "has_blocking")]
+    pub no_blocking: bool,
+    /// Only include blocked ishoos.
+    #[arg(long)]
+    pub is_blocked: bool,
+    /// Only include ready ishoos.
+    #[arg(long)]
+    pub ready: bool,
+    /// Case-insensitive substring search.
+    #[arg(short = 'S', long = "search")]
+    pub search: Option<String>,
+    /// Sort mode.
+    #[arg(long = "sort")]
+    pub sort: Option<ListSortArg>,
+    /// Print only IDs.
+    #[arg(short = 'q', long = "quiet")]
+    pub quiet: bool,
+    /// Include body in JSON output.
+    #[arg(long)]
+    pub full: bool,
+}
+
+#[derive(Args)]
+pub struct UpdateArgs {
+    /// ID of the ishoo to update.
+    pub id: String,
+    /// Set the status.
+    #[arg(short = 's', long = "status")]
+    pub status: Option<String>,
+    /// Set the ishoo type.
+    #[arg(short = 't', long = "type")]
+    pub ishoo_type: Option<String>,
+    /// Set the priority.
+    #[arg(short = 'p', long = "priority")]
+    pub priority: Option<String>,
+    /// Set the title.
+    #[arg(long = "title")]
+    pub title: Option<String>,
+    /// Replace the full body; use `-` to read from stdin.
+    #[arg(
+        short = 'd',
+        long = "body",
+        conflicts_with_all = ["body_file", "body_replace_old", "body_append"]
+    )]
+    pub body: Option<String>,
+    /// Read the full body from a file.
+    #[arg(
+        long = "body-file",
+        conflicts_with_all = ["body", "body_replace_old", "body_append"]
+    )]
+    pub body_file: Option<String>,
+    /// Replace this exact body text.
+    #[arg(long = "body-replace-old", requires = "body_replace_new")]
+    pub body_replace_old: Option<String>,
+    /// Replacement text for `--body-replace-old`.
+    #[arg(long = "body-replace-new", requires = "body_replace_old")]
+    pub body_replace_new: Option<String>,
+    /// Append text to the body; use `-` to read from stdin.
+    #[arg(long = "body-append", conflicts_with_all = ["body", "body_file"])]
+    pub body_append: Option<String>,
+    /// Set the parent ishoo ID.
+    #[arg(long = "parent", conflicts_with = "remove_parent")]
+    pub parent: Option<String>,
+    /// Remove the current parent relationship.
+    #[arg(long = "remove-parent", conflicts_with = "parent")]
+    pub remove_parent: bool,
+    /// Add a blocking relationship. May be repeated.
+    #[arg(long = "blocking")]
+    pub blocking: Vec<String>,
+    /// Remove a blocking relationship. May be repeated.
+    #[arg(long = "remove-blocking")]
+    pub remove_blocking: Vec<String>,
+    /// Add a blocked-by relationship. May be repeated.
+    #[arg(long = "blocked-by")]
+    pub blocked_by: Vec<String>,
+    /// Remove a blocked-by relationship. May be repeated.
+    #[arg(long = "remove-blocked-by")]
+    pub remove_blocked_by: Vec<String>,
+    /// Add a tag. May be repeated.
+    #[arg(long = "tag")]
+    pub tags: Vec<String>,
+    /// Remove a tag. May be repeated.
+    #[arg(long = "remove-tag")]
+    pub remove_tags: Vec<String>,
+    /// Require the current ETag to match before updating.
+    #[arg(long = "if-match")]
+    pub if_match: Option<String>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum ListSortArg {
+    Created,
+    Updated,
+    Status,
+    Priority,
+    Id,
+}
+
+impl ListSortArg {
+    pub fn into_sort_mode(self) -> SortMode {
+        match self {
+            Self::Created => SortMode::Created,
+            Self::Updated => SortMode::Updated,
+            Self::Status => SortMode::Status,
+            Self::Priority => SortMode::Priority,
+            Self::Id => SortMode::Id,
+        }
+    }
+}
+
+#[derive(Args)]
+pub struct ShowArgs {
+    /// IDs of the ishoos to display.
+    #[arg(required = true)]
+    pub ids: Vec<String>,
+    /// Print the raw markdown file content.
+    #[arg(long, conflicts_with_all = ["body_only", "etag_only"])]
+    pub raw: bool,
+    /// Print only the markdown body.
+    #[arg(long, conflicts_with_all = ["raw", "etag_only"])]
+    pub body_only: bool,
+    /// Print only the current ETag.
+    #[arg(long, conflicts_with_all = ["raw", "body_only"])]
+    pub etag_only: bool,
+}
+
+#[derive(Args)]
+pub struct DeleteArgs {
+    /// IDs of the ishoos to delete.
+    #[arg(required = true)]
+    pub ids: Vec<String>,
+    /// Skip the confirmation prompt.
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
+}
