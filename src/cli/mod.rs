@@ -148,6 +148,7 @@ fn render_template(template: &str, replacements: &[(&str, &str)]) -> String {
 mod tests {
     use super::prime_output;
     use crate::config::Config;
+    use clap::Parser;
 
     #[test]
     fn prime_output_uses_config_values() {
@@ -185,5 +186,49 @@ mod tests {
         let output = prime_output(&Config::default());
 
         assert!(output.contains("in this project"));
+    }
+
+    #[test]
+    fn cli_parses_delete_alias() {
+        let cli = crate::cli::Cli::try_parse_from(["ish", "rm", "target"])
+            .expect("delete alias should parse successfully");
+
+        match cli.command {
+            Some(crate::cli::Commands::Delete(args)) => {
+                assert_eq!(args.ids, vec!["target".to_string()]);
+                assert!(!args.force);
+            }
+            _ => panic!("expected delete command"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_list_alias() {
+        let cli = crate::cli::Cli::try_parse_from(["ish", "ls", "--ready"])
+            .expect("list alias should parse successfully");
+
+        match cli.command {
+            Some(crate::cli::Commands::List(args)) => {
+                assert!(args.ready);
+                assert!(!args.quiet);
+            }
+            _ => panic!("expected list command"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_show_flags() {
+        let cli = crate::cli::Cli::try_parse_from(["ish", "show", "abcd", "efgh", "--body-only"])
+            .expect("show command should parse successfully");
+
+        match cli.command {
+            Some(crate::cli::Commands::Show(args)) => {
+                assert_eq!(args.ids, vec!["abcd".to_string(), "efgh".to_string()]);
+                assert!(args.body_only);
+                assert!(!args.raw);
+                assert!(!args.etag_only);
+            }
+            _ => panic!("expected show command"),
+        }
     }
 }

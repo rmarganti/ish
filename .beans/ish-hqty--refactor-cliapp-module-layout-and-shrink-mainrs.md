@@ -1,11 +1,11 @@
 ---
 # ish-hqty
 title: Refactor CLI/app module layout and shrink main.rs
-status: todo
+status: completed
 type: epic
 priority: high
 created_at: 2026-04-17T19:01:08Z
-updated_at: 2026-04-17T19:22:40Z
+updated_at: 2026-04-17T19:37:50Z
 ---
 
 ## Goal
@@ -29,14 +29,22 @@ Target direction:
 
 ## Success Criteria
 
-- [ ] `src/main.rs` only contains bootstrap/entrypoint concerns.
-- [ ] Command logic lives under `src/commands/` instead of `src/main.rs`.
-- [ ] Shared context/error handling lives under `src/app/`.
-- [ ] CLI arg definitions live under `src/cli/args.rs`.
-- [ ] The refactor preserves behavior and passes the full feedback loop.
+- [x] `src/main.rs` only contains bootstrap/entrypoint concerns.
+- [x] Command logic lives under `src/commands/` instead of `src/main.rs`.
+- [x] Shared context/error handling lives under `src/app/`.
+- [x] CLI arg definitions live under `src/cli/args.rs`.
+- [x] The refactor preserves behavior and passes the full feedback loop.
 
 ## Verification
 
-- [ ] `cargo test`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy -- -D warnings`
+- [x] `cargo test`
+- [x] `cargo fmt --all -- --check`
+- [x] `cargo clippy -- -D warnings`
+
+## Summary of Changes
+
+- Extracted clap argument definitions into `src/cli/args.rs` and moved dispatch/bootstrap concerns into `src/app/`.
+- Moved command implementations out of `src/main.rs` into `src/commands/`, with focused submodules for the heaviest `list` and `check` command logic.
+- Finished the refactor by shrinking `src/main.rs` to a small entrypoint and relocating the old centralized tests into module-local `#[cfg(test)]` suites.
+- Added `src/test_support.rs` so shared test scaffolding stays reusable without recreating a new monolithic test file.
+- Verified the refactor with the full feedback loop (`cargo test`, `cargo fmt --all -- --check`, `cargo clippy -- -D warnings`).

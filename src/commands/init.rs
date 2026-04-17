@@ -66,3 +66,89 @@ fn project_name(dir: &Path) -> Result<String, AppError> {
             )
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{STORE_GITIGNORE_CONTENT, init_command};
+    use crate::app::run;
+    use crate::cli::{Cli, Commands};
+    use crate::config::{CONFIG_FILE_NAME, Config};
+    use crate::test_support::{TestDir, WorkingDirGuard};
+    use serde_json::Value;
+    use std::fs;
+
+    #[test]
+    fn run_init_creates_project_files_with_defaults() {
+        let temp = TestDir::new();
+        let project_dir = temp.path().join("demo-project");
+        fs::create_dir_all(&project_dir).expect("project dir should exist");
+        let _guard = WorkingDirGuard::change_to(&project_dir);
+
+        let output = run(Cli {
+            json: false,
+            command: Some(Commands::Init),
+        })
+        .expect("init command should succeed")
+        .output
+        .expect("init command should print output");
+
+        assert!(output.contains("initialized ish project"));
+        assert_eq!(
+            fs::read_to_string(project_dir.join(".ish").join(".gitignore"))
+                .expect("gitignore should be written"),
+            STORE_GITIGNORE_CONTENT
+        );
+
+        let config = Config::load(project_dir.join(CONFIG_FILE_NAME)).expect("config should load");
+        assert_eq!(config.ish.path, ".ish");
+        assert_eq!(config.ish.prefix, "demo-project-");
+        assert_eq!(config.project.name, "demo-project");
+    }
+
+    #[test]
+    fn init_command_is_idempotent_and_preserves_existing_config() {
+        let temp = TestDir::new();
+        let project_dir = temp.path().join("custom-project");
+        fs::create_dir_all(&project_dir).expect("project dir should exist");
+        let _guard = WorkingDirGuard::change_to(&project_dir);
+
+        let mut config = Config::default_with_prefix("custom");
+        config.project.name = "Custom Name".to_string();
+        config.save(&project_dir).expect("config should save");
+
+        let output = init_command(false)
+            .expect("init command should succeed")
+            .expect("init command should print output");
+
+        assert!(output.contains("already initialized"));
+        let loaded = Config::load(project_dir.join(CONFIG_FILE_NAME)).expect("config should load");
+        assert_eq!(loaded.ish.prefix, "custom");
+        assert_eq!(loaded.project.name, "Custom Name");
+        assert_eq!(
+            fs::read_to_string(project_dir.join(".ish").join(".gitignore"))
+                .expect("gitignore should be written"),
+            STORE_GITIGNORE_CONTENT
+        );
+    }
+
+    #[test]
+    fn init_command_wraps_message_in_json_mode() {
+        let temp = TestDir::new();
+        let project_dir = temp.path().join("json-project");
+        fs::create_dir_all(&project_dir).expect("project dir should exist");
+        let _guard = WorkingDirGuard::change_to(&project_dir);
+
+        let output = init_command(true)
+            .expect("init command should succeed")
+            .expect("init command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert!(
+            parsed["message"]
+                .as_str()
+                .expect("message should be present")
+                .contains("initialized ish project")
+        );
+    }
+}

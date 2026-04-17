@@ -21,8 +21,3 @@ pub(crate) use roadmap::roadmap_command;
 pub(crate) use show::show_command;
 pub(crate) use update::update_command;
 pub(crate) use version::version_output;
-
-#[cfg(test)]
-pub(crate) use delete::{DeleteTarget, confirm_delete, delete_command_with_io};
-#[cfg(test)]
-pub(crate) use init::STORE_GITIGNORE_CONTENT;
