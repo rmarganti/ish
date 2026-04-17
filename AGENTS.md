@@ -14,7 +14,7 @@ cargo test
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 **Always run the feedback loop after making changes to verify correctness.**
