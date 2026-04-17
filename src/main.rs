@@ -23,9 +23,10 @@ use crate::core::store::{
 use crate::core::{SortMode, sort_ishoos};
 use crate::model::ishoo::Ishoo;
 use crate::output::{
-    ErrorCode, build_tree, danger, detect_terminal_width, is_supported_color_name, muted,
-    output_error, output_message, output_success, output_success_multiple, render_id, render_tree,
-    success, warning,
+    ErrorCode, build_tree, danger, detect_terminal_width, heading, is_supported_color_name, muted,
+    output_error, output_message, output_success, output_success_multiple, render_id,
+    render_markdown_with_width, render_priority, render_status, render_tree, render_type, success,
+    warning,
 };
 use crate::roadmap::{RoadmapOptions, roadmap_output};
 
@@ -56,6 +57,8 @@ enum Commands {
     /// Update an existing ishoo.
     #[command(visible_alias = "u")]
     Update(UpdateArgs),
+    /// Show one or more ishoos in detail.
+    Show(ShowArgs),
     /// Delete one or more ishoos.
     #[command(visible_alias = "rm")]
     Delete(DeleteArgs),
@@ -271,6 +274,22 @@ enum ListSortArg {
 }
 
 #[derive(clap::Args)]
+struct ShowArgs {
+    /// IDs of the ishoos to display.
+    #[arg(required = true)]
+    ids: Vec<String>,
+    /// Print the raw markdown file content.
+    #[arg(long, conflicts_with_all = ["body_only", "etag_only"])]
+    raw: bool,
+    /// Print only the markdown body.
+    #[arg(long, conflicts_with_all = ["raw", "etag_only"])]
+    body_only: bool,
+    /// Print only the current ETag.
+    #[arg(long, conflicts_with_all = ["raw", "body_only"])]
+    etag_only: bool,
+}
+
+#[derive(clap::Args)]
 struct DeleteArgs {
     /// IDs of the ishoos to delete.
     #[arg(required = true)]
@@ -357,6 +376,7 @@ fn run(cli: Cli) -> Result<RunOutcome, AppError> {
         Some(Commands::Create(args)) => create_command(args, cli.json).map(success_outcome),
         Some(Commands::List(args)) => list_command(args, cli.json).map(success_outcome),
         Some(Commands::Update(args)) => update_command(args, cli.json).map(success_outcome),
+        Some(Commands::Show(args)) => show_command(args, cli.json).map(success_outcome),
         Some(Commands::Delete(args)) => delete_command(args, cli.json).map(success_outcome),
         Some(Commands::Archive) => archive_command(cli.json).map(success_outcome),
         Some(Commands::Check(args)) => check_command(args, cli.json),
@@ -511,6 +531,162 @@ fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> 
         tree_has_tags(&tree),
         detect_terminal_width(),
     )))
+}
+
+fn show_command(args: ShowArgs, json: bool) -> Result<Option<String>, AppError> {
+    let (_, config, store) = load_store_from_current_dir()?;
+    let ishoos = resolve_show_ishoos(&store, &args.ids)?;
+
+    if json {
+        let rendered = ishoos
+            .iter()
+            .map(|ishoo| serde_json::to_value(ishoo.to_json(&ishoo.etag())))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                AppError::new(
+                    ErrorCode::FileError,
+                    format!("failed to serialize show output: {error}"),
+                )
+            })?;
+        return Ok(Some(
+            output_success_multiple(rendered).map_err(json_output_error)?,
+        ));
+    }
+
+    if args.etag_only {
+        return Ok(Some(
+            ishoos
+                .iter()
+                .map(|ishoo| ishoo.etag())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ));
+    }
+
+    if args.body_only {
+        return Ok(Some(render_show_sections(
+            &ishoos
+                .iter()
+                .map(|ishoo| ishoo.body.clone())
+                .collect::<Vec<_>>(),
+        )));
+    }
+
+    if args.raw {
+        return Ok(Some(render_show_sections(
+            &ishoos
+                .iter()
+                .map(|ishoo| ishoo.render())
+                .collect::<Vec<_>>(),
+        )));
+    }
+
+    Ok(Some(render_show_sections(
+        &ishoos
+            .iter()
+            .map(|ishoo| render_show_human(ishoo, &store, &config))
+            .collect::<Vec<_>>(),
+    )))
+}
+
+fn resolve_show_ishoos(store: &Store, ids: &[String]) -> Result<Vec<Ishoo>, AppError> {
+    let mut ordered = Vec::new();
+    let mut seen = HashSet::new();
+
+    for id in ids {
+        let normalized = store.normalize_id(id);
+        if seen.insert(normalized.clone()) {
+            let ishoo = store
+                .get(&normalized)
+                .cloned()
+                .ok_or_else(|| store_app_error(StoreError::NotFound(normalized.clone())))?;
+            ordered.push(ishoo);
+        }
+    }
+
+    Ok(ordered)
+}
+
+fn render_show_sections(sections: &[String]) -> String {
+    sections.join("\n════════════════════════════════════════════════════════════════\n")
+}
+
+fn render_show_human(ishoo: &Ishoo, store: &Store, config: &Config) -> String {
+    let priority = ishoo.priority.as_deref().unwrap_or("normal");
+    let mut lines = vec![format!(
+        "{} {} {} {} {}{}",
+        render_id(&ishoo.id),
+        render_status(config, &ishoo.status),
+        render_type(config, &ishoo.ishoo_type),
+        render_priority(config, priority),
+        heading(&ishoo.title),
+        if ishoo.tags.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", muted(&format!("#{}", ishoo.tags.join(" #"))))
+        }
+    )];
+
+    lines.push(format!("Path: {}", ishoo.path));
+    lines.push(format!(
+        "Created: {} | Updated: {} | ETag: {}",
+        ishoo.created_at.to_rfc3339(),
+        ishoo.updated_at.to_rfc3339(),
+        ishoo.etag()
+    ));
+    lines.push("─".repeat(64));
+
+    let mut relationships = Vec::new();
+    relationships.push(format_relationship(
+        "Parent",
+        ishoo.parent.as_deref().map(str::to_string),
+    ));
+    relationships.push(format_relationships("Blocking", &ishoo.blocking));
+    relationships.push(format_relationships("Blocked by", &ishoo.blocked_by));
+    relationships.push(format_relationships(
+        "Incoming",
+        &store
+            .find_incoming_links(&ishoo.id)
+            .into_iter()
+            .map(|link| format!("{} ({})", link.source_id, link_type_label(link.link_type)))
+            .collect::<Vec<_>>(),
+    ));
+    if let Some((status, source_id)) = store.implicit_status(&ishoo.id) {
+        relationships.push(format!("Inherited status: {} from {}", status, source_id));
+    }
+    if store.is_blocked(&ishoo.id) {
+        relationships.push(format_relationships(
+            "Active blockers",
+            &store.find_all_blockers(&ishoo.id),
+        ));
+    }
+    lines.extend(relationships);
+    lines.push("─".repeat(64));
+
+    let width = detect_terminal_width().saturating_sub(2).max(20);
+    let body = render_markdown_with_width(&ishoo.body, width);
+    if body.is_empty() {
+        lines.push(muted("(no body)"));
+    } else {
+        lines.push(body.trim_end().to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn format_relationship(label: &str, value: Option<String>) -> String {
+    match value {
+        Some(value) => format!("{label}: {value}"),
+        None => format!("{label}: none"),
+    }
+}
+
+fn format_relationships(label: &str, values: &[String]) -> String {
+    if values.is_empty() {
+        format!("{label}: none")
+    } else {
+        format!("{label}: {}", values.join(", "))
+    }
 }
 
 fn update_command(args: UpdateArgs, json: bool) -> Result<Option<String>, AppError> {
@@ -1577,9 +1753,9 @@ fn json_output_error(message: String) -> AppError {
 mod tests {
     use super::{
         CheckArgs, Cli, Commands, CreateArgs, DeleteArgs, DeleteTarget, ListArgs, RoadmapArgs,
-        STORE_GITIGNORE_CONTENT, UpdateArgs, archive_command, check_command, confirm_delete,
-        create_command, delete_command_with_io, init_command, list_command, prime_command,
-        roadmap_command, run, update_command, version_output,
+        STORE_GITIGNORE_CONTENT, ShowArgs, UpdateArgs, archive_command, check_command,
+        confirm_delete, create_command, delete_command_with_io, init_command, list_command,
+        prime_command, roadmap_command, run, show_command, update_command, version_output,
     };
     use crate::config::{CONFIG_FILE_NAME, Config};
     use crate::core::store::{LinkRef, LinkType};
@@ -2236,6 +2412,185 @@ mod tests {
     }
 
     #[test]
+    fn show_command_supports_json_raw_body_and_etag_output() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &["context"],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "todo",
+            "task",
+            Some("high"),
+            "Blocker body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-target",
+            "Target",
+            "todo",
+            "task",
+            Some("normal"),
+            "# Heading\n\nBody text.",
+            Some("ish-parent"),
+            &["ish-blocker"],
+            &[],
+            &["cli", "show"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let json_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: false,
+            },
+            true,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        let parsed: Value = serde_json::from_str(&json_output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["count"], Value::from(1));
+        assert_eq!(parsed["ishoos"][0]["id"], "ish-target");
+        assert_eq!(parsed["ishoos"][0]["parent"], "ish-parent");
+        assert_eq!(parsed["ishoos"][0]["blocking"][0], "ish-blocker");
+        assert!(parsed["ishoos"][0].get("etag").is_some());
+
+        let raw_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: true,
+                body_only: false,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert!(raw_output.starts_with("---\n# ish-target"));
+        assert!(raw_output.contains("title: Target"));
+
+        let body_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: true,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert_eq!(body_output, "# Heading\n\nBody text.");
+
+        let etag_output = show_command(
+            ShowArgs {
+                ids: vec!["target".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: true,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+        assert_eq!(etag_output.len(), 16);
+        assert!(etag_output.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn show_command_human_output_renders_header_relationships_and_separator() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        write_test_ishoo(
+            &store_root,
+            "ish-parent",
+            "Parent",
+            "completed",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-blocker",
+            "Blocker",
+            "todo",
+            "task",
+            Some("high"),
+            "Blocker body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ishoo(
+            &store_root,
+            "ish-child",
+            "Child",
+            "todo",
+            "task",
+            Some("normal"),
+            "Child body.",
+            Some("ish-parent"),
+            &["ish-blocker"],
+            &[],
+            &["demo"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = show_command(
+            ShowArgs {
+                ids: vec!["child".to_string(), "parent".to_string()],
+                raw: false,
+                body_only: false,
+                etag_only: false,
+            },
+            false,
+        )
+        .expect("show command should succeed")
+        .expect("show command should print output");
+
+        assert!(output.contains("ish-child"));
+        assert!(output.contains("Path: ish-child--child.md"));
+        assert!(output.contains("Parent: ish-parent"));
+        assert!(output.contains("Blocking: ish-blocker"));
+        assert!(output.contains("Inherited status: completed from ish-parent"));
+        assert!(output.contains("#demo"));
+        assert!(output.contains("Child body."));
+        assert!(output.contains("════════"));
+    }
+
+    #[test]
     fn confirm_delete_prints_title_path_and_incoming_link_count() {
         let mut input = Cursor::new(b"yes\n".to_vec());
         let mut output = Vec::new();
@@ -2388,6 +2743,22 @@ mod tests {
                 assert!(!args.quiet);
             }
             _ => panic!("expected list command"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_show_flags() {
+        let cli = Cli::try_parse_from(["ish", "show", "abcd", "efgh", "--body-only"])
+            .expect("show command should parse successfully");
+
+        match cli.command {
+            Some(Commands::Show(args)) => {
+                assert_eq!(args.ids, vec!["abcd".to_string(), "efgh".to_string()]);
+                assert!(args.body_only);
+                assert!(!args.raw);
+                assert!(!args.etag_only);
+            }
+            _ => panic!("expected show command"),
         }
     }
 
