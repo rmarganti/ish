@@ -1,0 +1,54 @@
+# ish Agent Guide
+
+Use `ish` as the source of truth for work in {{project_name}}.
+
+## Project Defaults
+
+- Workspace path: `{{config_path}}`
+- Prefix new IDs with `{{prefix}}-`
+- Default new ishoo type: `{{default_type}}`
+- Default new ishoo status: `{{default_status}}`
+
+## CLI Command Reference
+
+{{commands}}
+
+When available, prefer machine-readable output modes for automation so agents can parse results instead of scraping terminal text.
+
+## Ishoo Types
+
+{{types}}
+
+## Ishoo Statuses
+
+{{statuses}}
+
+## Ishoo Priorities
+
+{{priorities}}
+
+## Body Modification Guide
+
+- Treat the body as markdown content stored after the YAML frontmatter.
+- Prefer exact-match body replacements when updating checklists or headings so concurrent edits are easier to validate.
+- Append new sections instead of rewriting the whole body when you only need to add notes, verification details, or a summary of changes.
+- Keep checklist items accurate as work progresses; mark each completed item with `- [x]` as soon as it is done.
+
+## Concurrency Control
+
+- Read the latest ishoo content before editing it.
+- Use etags or another current-content check when the CLI supports them so updates fail safely instead of overwriting newer edits.
+- If the underlying file changes between read and write, reload the ishoo and reapply the intended edit against the newest content.
+
+## Relationship Model
+
+- `parent`: hierarchy only; use it to group related ishoos under milestones, epics, or larger features.
+- `blocking`: IDs of ishoos that this ishoo is actively blocking.
+- `blocked_by`: IDs of prerequisites that must finish before this ishoo can move forward.
+- Do not infer blocking from parent/child relationships alone; hierarchy and dependency links mean different things.
+
+## Working Rules For Agents
+
+- Prefer small, focused edits that keep the existing structure intact.
+- Record useful implementation notes, verification details, and follow-up context in the relevant ishoo before marking it complete.
+- Run the project validation loop after changes and fix failures before considering the work done.
