@@ -478,7 +478,7 @@ fn issue_link(config: &Config, ish: &Ish, options: &RoadmapOptions) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_roadmap, render_markdown, RoadmapOptions};
+    use super::{RoadmapOptions, build_roadmap, render_markdown};
     use crate::config::Config;
     use crate::model::ish::Ish;
     use chrono::{TimeZone, Utc};
