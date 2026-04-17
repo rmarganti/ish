@@ -1,7 +1,7 @@
 use crate::app::{AppContext, AppError, json_output_error, store_app_error};
 use crate::cli::DeleteArgs;
 use crate::core::store::{LinkRef, Store, StoreError};
-use crate::model::ishoo::Ishoo;
+use crate::model::ish::Ish;
 use crate::output::{ErrorCode, muted, output_success, render_id, success, warning};
 use serde::Serialize;
 use std::collections::HashSet;
@@ -9,13 +9,13 @@ use std::io::{self, BufRead, Write};
 
 #[derive(Debug, Clone)]
 pub(crate) struct DeleteTarget {
-    pub(crate) ishoo: Ishoo,
+    pub(crate) ish: Ish,
     pub(crate) incoming_links: Vec<LinkRef>,
 }
 
 #[derive(Debug, Serialize)]
 struct DeleteJson {
-    deleted: Vec<crate::model::ishoo::IshooJson>,
+    deleted: Vec<crate::model::ish::IshJson>,
     count: usize,
     cleaned_links: usize,
 }
@@ -45,16 +45,13 @@ pub(crate) fn delete_command_with_io<R: BufRead, W: Write>(
 
     let mut deleted = Vec::with_capacity(targets.len());
     for target in &targets {
-        deleted.push(store.delete(&target.ishoo.id).map_err(store_app_error)?);
+        deleted.push(store.delete(&target.ish.id).map_err(store_app_error)?);
     }
 
     if json {
         return Ok(Some(
             output_success(DeleteJson {
-                deleted: deleted
-                    .iter()
-                    .map(|ishoo| ishoo.to_json(&ishoo.etag()))
-                    .collect(),
+                deleted: deleted.iter().map(|ish| ish.to_json(&ish.etag())).collect(),
                 count: deleted.len(),
                 cleaned_links,
             })
@@ -80,7 +77,7 @@ fn resolve_delete_targets(store: &Store, ids: &[String]) -> Result<Vec<DeleteTar
     ordered_ids
         .into_iter()
         .map(|id| {
-            let ishoo = store
+            let ish = store
                 .get(&id)
                 .cloned()
                 .ok_or_else(|| store_app_error(StoreError::NotFound(id.clone())))?;
@@ -91,7 +88,7 @@ fn resolve_delete_targets(store: &Store, ids: &[String]) -> Result<Vec<DeleteTar
                 .collect();
 
             Ok(DeleteTarget {
-                ishoo,
+                ish,
                 incoming_links,
             })
         })
@@ -107,20 +104,16 @@ pub(crate) fn confirm_delete<R: BufRead, W: Write>(
         .iter()
         .map(|target| target.incoming_links.len())
         .sum::<usize>();
-    let issue_label = if targets.len() == 1 {
-        "ishoo"
-    } else {
-        "ishoos"
-    };
+    let issue_label = if targets.len() == 1 { "ish" } else { "ishes" };
 
     writeln!(output, "Delete {} {issue_label}?", targets.len()).map_err(prompt_io_error)?;
     for target in targets {
         writeln!(
             output,
             "- {} | title: {} | path: {} | incoming links: {}",
-            target.ishoo.id,
-            target.ishoo.title,
-            target.ishoo.path,
+            target.ish.id,
+            target.ish.title,
+            target.ish.path,
             target.incoming_links.len()
         )
         .map_err(prompt_io_error)?;
@@ -129,7 +122,7 @@ pub(crate) fn confirm_delete<R: BufRead, W: Write>(
     if total_incoming > 0 {
         writeln!(
             output,
-            "Warning: deleting these ishoos will remove {total_incoming} incoming link(s) from remaining ishoos."
+            "Warning: deleting these ishes will remove {total_incoming} incoming link(s) from remaining ishs."
         )
         .map_err(prompt_io_error)?;
     }
@@ -144,7 +137,7 @@ pub(crate) fn confirm_delete<R: BufRead, W: Write>(
     Ok(matches!(response.as_str(), "y" | "yes"))
 }
 
-fn render_delete_success(deleted: &[Ishoo], cleaned_links: usize) -> String {
+fn render_delete_success(deleted: &[Ish], cleaned_links: usize) -> String {
     if deleted.len() == 1 {
         let deleted = &deleted[0];
         let suffix = if cleaned_links == 0 {
@@ -164,7 +157,7 @@ fn render_delete_success(deleted: &[Ishoo], cleaned_links: usize) -> String {
     } else {
         format!(" and cleaned {cleaned_links} incoming link(s)")
     };
-    success(&format!("Deleted {} ishoos{suffix}", deleted.len()))
+    success(&format!("Deleted {} ishes{suffix}", deleted.len()))
 }
 
 fn prompt_io_error(error: io::Error) -> AppError {
@@ -180,7 +173,7 @@ mod tests {
     use crate::cli::DeleteArgs;
     use crate::config::Config;
     use crate::core::store::{LinkRef, LinkType};
-    use crate::model::ishoo::Ishoo;
+    use crate::model::ish::Ish;
     use crate::test_support::{TestDir, WorkingDirGuard};
     use chrono::Utc;
     use serde_json::Value;
@@ -189,13 +182,13 @@ mod tests {
 
     fn sample_delete_target(incoming_links: usize) -> DeleteTarget {
         DeleteTarget {
-            ishoo: Ishoo {
+            ish: Ish {
                 id: "ish-target".to_string(),
                 slug: "target".to_string(),
                 path: "ish-target--target.md".to_string(),
                 title: "Target".to_string(),
                 status: "todo".to_string(),
-                ishoo_type: "task".to_string(),
+                ish_type: "task".to_string(),
                 priority: Some("normal".to_string()),
                 tags: Vec::new(),
                 created_at: Utc::now(),
@@ -226,7 +219,7 @@ mod tests {
         let rendered = String::from_utf8(output).expect("prompt should be utf8");
 
         assert!(confirmed);
-        assert!(rendered.contains("Delete 1 ishoo?"));
+        assert!(rendered.contains("Delete 1 ish?"));
         assert!(rendered.contains("title: Target"));
         assert!(rendered.contains("path: ish-target--target.md"));
         assert!(rendered.contains("incoming links: 2"));

@@ -6,7 +6,7 @@ use crate::output::{output_success_multiple, warning};
 mod filters;
 mod render;
 
-use filters::{filter_ishoos, sort_ishoo_refs, validate_list_args};
+use filters::{filter_ishes, sort_ish_refs, validate_list_args};
 use render::{list_json_value, render_tree_output};
 
 pub(crate) fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> {
@@ -15,43 +15,39 @@ pub(crate) fn list_command(args: ListArgs, json: bool) -> Result<Option<String>,
     let store = context.store;
     validate_list_args(&args, &config)?;
 
-    let all_ishoos = store.all().into_iter().cloned().collect::<Vec<_>>();
-    let filtered = filter_ishoos(&all_ishoos, &store, &config, &args);
+    let all_ishes = store.all().into_iter().cloned().collect::<Vec<_>>();
+    let filtered = filter_ishes(&all_ishes, &store, &config, &args);
     let sort_mode = args
         .sort
         .map(ListSortArg::into_sort_mode)
         .unwrap_or(SortMode::Default);
-    let sorted = sort_ishoo_refs(&filtered, sort_mode, &config);
+    let sorted = sort_ish_refs(&filtered, sort_mode, &config);
 
     if json {
-        let ishoos = sorted
+        let ishes = sorted
             .into_iter()
-            .map(|ishoo| list_json_value(ishoo, args.full))
+            .map(|ish| list_json_value(ish, args.full))
             .collect::<Result<Vec<_>, _>>()?;
         return Ok(Some(
-            output_success_multiple(ishoos).map_err(json_output_error)?,
+            output_success_multiple(ishes).map_err(json_output_error)?,
         ));
     }
 
     if args.quiet {
         let output = sorted
             .iter()
-            .map(|ishoo| ishoo.id.as_str())
+            .map(|ish| ish.id.as_str())
             .collect::<Vec<_>>()
             .join("\n");
         return Ok((!output.is_empty()).then_some(output));
     }
 
     if sorted.is_empty() {
-        return Ok(Some(warning("No ishoos found")));
+        return Ok(Some(warning("No ishes found")));
     }
 
     Ok(Some(render_tree_output(
-        &sorted,
-        &all_ishoos,
-        &store,
-        &config,
-        sort_mode,
+        &sorted, &all_ishes, &store, &config, sort_mode,
     )))
 }
 
@@ -61,7 +57,7 @@ mod tests {
     use crate::app::run;
     use crate::cli::{Cli, Commands, ListArgs, ListSortArg};
     use crate::config::Config;
-    use crate::test_support::{TestDir, WorkingDirGuard, write_test_ishoo};
+    use crate::test_support::{TestDir, WorkingDirGuard, write_test_ish};
     use serde_json::Value;
     use std::fs;
 
@@ -72,7 +68,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-alpha",
             "Alpha task",
@@ -85,7 +81,7 @@ mod tests {
             &[],
             &["cli"],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-beta",
             "Beta bug",
@@ -104,7 +100,7 @@ mod tests {
             ListArgs {
                 status: vec!["todo".to_string()],
                 no_status: Vec::new(),
-                ishoo_type: vec!["task".to_string()],
+                ish_type: vec!["task".to_string()],
                 no_type: Vec::new(),
                 priority: vec!["high".to_string()],
                 no_priority: Vec::new(),
@@ -130,8 +126,8 @@ mod tests {
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
         assert_eq!(parsed["success"], Value::Bool(true));
         assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(parsed["ishoos"][0]["id"], "ish-alpha");
-        assert!(parsed["ishoos"][0].get("body").is_none());
+        assert_eq!(parsed["ishes"][0]["id"], "ish-alpha");
+        assert!(parsed["ishes"][0].get("body").is_none());
     }
 
     #[test]
@@ -141,7 +137,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-alpha",
             "Alpha task",
@@ -160,7 +156,7 @@ mod tests {
             ListArgs {
                 status: Vec::new(),
                 no_status: Vec::new(),
-                ishoo_type: Vec::new(),
+                ish_type: Vec::new(),
                 no_type: Vec::new(),
                 priority: Vec::new(),
                 no_priority: Vec::new(),
@@ -184,7 +180,7 @@ mod tests {
         .expect("list command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["ishoos"][0]["body"], "Detailed body.");
+        assert_eq!(parsed["ishes"][0]["body"], "Detailed body.");
     }
 
     #[test]
@@ -194,7 +190,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-ready",
             "Ready item",
@@ -207,7 +203,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-blocker",
             "Blocker",
@@ -220,7 +216,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-blocked",
             "Blocked item",
@@ -233,7 +229,7 @@ mod tests {
             &["ish-blocker"],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-active",
             "Active item",
@@ -246,7 +242,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-parent",
             "Completed parent",
@@ -259,7 +255,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-child",
             "Child item",
@@ -278,7 +274,7 @@ mod tests {
             ListArgs {
                 status: Vec::new(),
                 no_status: Vec::new(),
-                ishoo_type: Vec::new(),
+                ish_type: Vec::new(),
                 no_type: Vec::new(),
                 priority: Vec::new(),
                 no_priority: Vec::new(),
@@ -311,7 +307,7 @@ mod tests {
         config.save(temp.path()).expect("config should save");
         let store_root = temp.path().join(".ish");
         fs::create_dir_all(&store_root).expect("store root should exist");
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-parent",
             "Parent",
@@ -324,7 +320,7 @@ mod tests {
             &[],
             &[],
         );
-        write_test_ishoo(
+        write_test_ish(
             &store_root,
             "ish-child",
             "Child",
@@ -343,7 +339,7 @@ mod tests {
             ListArgs {
                 status: Vec::new(),
                 no_status: Vec::new(),
-                ishoo_type: Vec::new(),
+                ish_type: Vec::new(),
                 no_type: Vec::new(),
                 priority: Vec::new(),
                 no_priority: Vec::new(),
@@ -377,7 +373,7 @@ mod tests {
         let config = Config::default();
         config.save(temp.path()).expect("config should save");
         fs::create_dir_all(temp.path().join(".ish")).expect("store dir should be created");
-        write_test_ishoo(
+        write_test_ish(
             &temp.path().join(".ish"),
             "ish-abcd",
             "From run",
@@ -397,7 +393,7 @@ mod tests {
             command: Some(Commands::List(ListArgs {
                 status: Vec::new(),
                 no_status: Vec::new(),
-                ishoo_type: Vec::new(),
+                ish_type: Vec::new(),
                 no_type: Vec::new(),
                 priority: Vec::new(),
                 no_priority: Vec::new(),
@@ -423,6 +419,6 @@ mod tests {
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
         assert_eq!(parsed["success"], Value::Bool(true));
         assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(parsed["ishoos"][0]["id"], "ish-abcd");
+        assert_eq!(parsed["ishes"][0]["id"], "ish-abcd");
     }
 }

@@ -32,12 +32,12 @@ pub(super) fn validate_config(config: &Config) -> ConfigChecks {
     }
 
     for type_name in config.type_names() {
-        if let Some(ishoo_type) = config.get_type(type_name)
-            && !is_supported_color_name(ishoo_type.color)
+        if let Some(ish_type) = config.get_type(type_name)
+            && !is_supported_color_name(ish_type.color)
         {
             invalid_colors.push(format!(
                 "type `{}` uses unsupported color `{}`",
-                ishoo_type.name, ishoo_type.color
+                ish_type.name, ish_type.color
             ));
         }
     }

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::model::ishoo::{Ishoo, IshooJson};
+use crate::model::ish::{Ish, IshJson};
 use colored::{Color, Colorize};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -31,14 +31,14 @@ impl ErrorCode {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Response<T, L = IshooJson> {
+pub struct Response<T, L = IshJson> {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ishoos: Option<Vec<L>>,
+    pub ishes: Option<Vec<L>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,7 +48,7 @@ pub struct Response<T, L = IshooJson> {
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeNode<'a> {
-    pub ishoo: &'a Ishoo,
+    pub ish: &'a Ish,
     pub children: Vec<TreeNode<'a>>,
     pub context_only: bool,
     pub implicit_status: Option<String>,
@@ -59,20 +59,20 @@ pub fn output_success<T: Serialize>(data: T) -> Result<String, String> {
         success: true,
         message: None,
         data: Some(data),
-        ishoos: None,
+        ishes: None,
         count: None,
         code: None,
     })
 }
 
 #[allow(dead_code)]
-pub fn output_success_multiple<T: Serialize>(ishoos: Vec<T>) -> Result<String, String> {
-    let count = ishoos.len();
+pub fn output_success_multiple<T: Serialize>(ishes: Vec<T>) -> Result<String, String> {
+    let count = ishes.len();
     render(Response::<(), T> {
         success: true,
         message: None,
         data: None,
-        ishoos: Some(ishoos),
+        ishes: Some(ishes),
         count: Some(count),
         code: None,
     })
@@ -83,7 +83,7 @@ pub fn output_message(message: impl Into<String>) -> Result<String, String> {
         success: true,
         message: Some(message.into()),
         data: None,
-        ishoos: None,
+        ishes: None,
         count: None,
         code: None,
     })
@@ -94,7 +94,7 @@ pub fn output_error(code: ErrorCode, message: impl Into<String>) -> String {
         success: false,
         message: Some(message.into()),
         data: None,
-        ishoos: None,
+        ishes: None,
         count: None,
         code: Some(code.as_str()),
     })
@@ -103,26 +103,26 @@ pub fn output_error(code: ErrorCode, message: impl Into<String>) -> String {
 
 #[allow(dead_code)]
 pub fn build_tree<'a, F>(
-    filtered_ishoos: &[&'a Ishoo],
-    all_ishoos: &[&'a Ishoo],
+    filtered_ishes: &[&'a Ish],
+    all_ishes: &[&'a Ish],
     sort_fn: F,
     implicit_statuses: &HashMap<String, String>,
 ) -> Vec<TreeNode<'a>>
 where
-    F: Fn(&[&'a Ishoo]) -> Vec<&'a Ishoo>,
+    F: Fn(&[&'a Ish]) -> Vec<&'a Ish>,
 {
-    let filtered_ids = filtered_ishoos
+    let filtered_ids = filtered_ishes
         .iter()
-        .map(|ishoo| ishoo.id.as_str())
+        .map(|ish| ish.id.as_str())
         .collect::<HashSet<_>>();
-    let by_id = all_ishoos
+    let by_id = all_ishes
         .iter()
-        .map(|ishoo| (ishoo.id.as_str(), *ishoo))
+        .map(|ish| (ish.id.as_str(), *ish))
         .collect::<HashMap<_, _>>();
     let mut included_ids = filtered_ids.iter().copied().collect::<HashSet<_>>();
 
-    for ishoo in filtered_ishoos {
-        let mut next_parent = ishoo.parent.as_deref();
+    for ish in filtered_ishes {
+        let mut next_parent = ish.parent.as_deref();
         while let Some(parent_id) = next_parent {
             let Some(parent) = by_id.get(parent_id).copied() else {
                 break;
@@ -134,30 +134,27 @@ where
         }
     }
 
-    let mut children_by_parent = HashMap::<Option<&'a str>, Vec<&'a Ishoo>>::new();
+    let mut children_by_parent = HashMap::<Option<&'a str>, Vec<&'a Ish>>::new();
     for included_id in &included_ids {
-        let Some(ishoo) = by_id.get(included_id).copied() else {
+        let Some(ish) = by_id.get(included_id).copied() else {
             continue;
         };
-        let parent_key = ishoo
+        let parent_key = ish
             .parent
             .as_deref()
             .filter(|parent| included_ids.contains(parent));
-        children_by_parent
-            .entry(parent_key)
-            .or_default()
-            .push(ishoo);
+        children_by_parent.entry(parent_key).or_default().push(ish);
     }
 
     fn build_nodes<'a, F>(
         parent_id: Option<&'a str>,
-        children_by_parent: &HashMap<Option<&'a str>, Vec<&'a Ishoo>>,
+        children_by_parent: &HashMap<Option<&'a str>, Vec<&'a Ish>>,
         filtered_ids: &HashSet<&'a str>,
         implicit_statuses: &HashMap<String, String>,
         sort_fn: &F,
     ) -> Vec<TreeNode<'a>>
     where
-        F: Fn(&[&'a Ishoo]) -> Vec<&'a Ishoo>,
+        F: Fn(&[&'a Ish]) -> Vec<&'a Ish>,
     {
         let Some(children) = children_by_parent.get(&parent_id) else {
             return Vec::new();
@@ -165,17 +162,17 @@ where
 
         sort_fn(children)
             .into_iter()
-            .map(|ishoo| TreeNode {
+            .map(|ish| TreeNode {
                 children: build_nodes(
-                    Some(ishoo.id.as_str()),
+                    Some(ish.id.as_str()),
                     children_by_parent,
                     filtered_ids,
                     implicit_statuses,
                     sort_fn,
                 ),
-                context_only: !filtered_ids.contains(ishoo.id.as_str()),
-                implicit_status: implicit_statuses.get(&ishoo.id).cloned(),
-                ishoo,
+                context_only: !filtered_ids.contains(ish.id.as_str()),
+                implicit_status: implicit_statuses.get(&ish.id).cloned(),
+                ish,
             })
             .collect()
     }
@@ -223,15 +220,12 @@ pub fn render_tree(
     ) {
         let prefix = tree_prefix(ancestors_have_more, is_last);
         let prefix_width = visible_width(&prefix);
-        let status = node
-            .implicit_status
-            .as_deref()
-            .unwrap_or(&node.ishoo.status);
-        let priority = node.ishoo.priority.as_deref().unwrap_or("normal");
-        let id_plain = format!("{:width$}", node.ishoo.id, width = context.max_id_width);
+        let status = node.implicit_status.as_deref().unwrap_or(&node.ish.status);
+        let priority = node.ish.priority.as_deref().unwrap_or("normal");
+        let id_plain = format!("{:width$}", node.ish.id, width = context.max_id_width);
         let fixed_plain = format!(
             "{} [{}] [{}] [{}] ",
-            id_plain, status, node.ishoo.ishoo_type, priority
+            id_plain, status, node.ish.ish_type, priority
         );
         let available_tail = context
             .term_width
@@ -239,9 +233,9 @@ pub fn render_tree(
         let tail = truncate_visible(
             &format!(
                 "{}{}",
-                node.ishoo.title,
+                node.ish.title,
                 if context.has_tags {
-                    format_tags(&node.ishoo.tags)
+                    format_tags(&node.ish.tags)
                 } else {
                     String::new()
                 }
@@ -252,9 +246,9 @@ pub fn render_tree(
             "{prefix}{} {} {} {} {}",
             render_id(&id_plain),
             render_status(context.config, status),
-            render_type(context.config, &node.ishoo.ishoo_type),
+            render_type(context.config, &node.ish.ish_type),
             render_priority(context.config, priority),
-            render_tail(&tail, node.ishoo.tags.len())
+            render_tail(&tail, node.ish.tags.len())
         );
 
         if node.context_only {
@@ -301,12 +295,10 @@ pub fn render_status(config: &Config, status: &str) -> String {
 }
 
 #[allow(dead_code)]
-pub fn render_type(config: &Config, ishoo_type: &str) -> String {
+pub fn render_type(config: &Config, ish_type: &str) -> String {
     render_badge(
-        ishoo_type,
-        config
-            .get_type(ishoo_type)
-            .map(|ishoo_type| ishoo_type.color),
+        ish_type,
+        config.get_type(ish_type).map(|ish_type| ish_type.color),
     )
     .to_string()
 }
@@ -485,20 +477,20 @@ mod tests {
         render_type, success, warning,
     };
     use crate::config::Config;
-    use crate::model::ishoo::Ishoo;
+    use crate::model::ish::Ish;
     use chrono::{TimeZone, Utc};
     use colored::{Color, control};
     use serde_json::{Value, json};
     use std::collections::HashMap;
 
-    fn sample_ishoo_json(id: &str) -> crate::model::ishoo::IshooJson {
-        Ishoo {
+    fn sample_ish_json(id: &str) -> crate::model::ish::IshJson {
+        Ish {
             id: id.to_string(),
             slug: "sample".to_string(),
             path: format!("{id}--sample.md"),
             title: "Sample".to_string(),
             status: "todo".to_string(),
-            ishoo_type: "task".to_string(),
+            ish_type: "task".to_string(),
             priority: Some("normal".to_string()),
             tags: vec!["backend".to_string()],
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
@@ -512,20 +504,20 @@ mod tests {
         .to_json("etag-1")
     }
 
-    fn tree_ishoo(
+    fn tree_ish(
         id: &str,
         title: &str,
         parent: Option<&str>,
         tags: &[&str],
         priority: Option<&str>,
-    ) -> Ishoo {
-        Ishoo {
+    ) -> Ish {
+        Ish {
             id: id.to_string(),
             slug: title.to_ascii_lowercase().replace(' ', "-"),
             path: format!("{id}.md"),
             title: title.to_string(),
             status: "todo".to_string(),
-            ishoo_type: "task".to_string(),
+            ish_type: "task".to_string(),
             priority: priority.map(str::to_string),
             tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
@@ -575,13 +567,13 @@ mod tests {
     #[test]
     fn output_success_multiple_includes_count() {
         let rendered =
-            output_success_multiple(vec![sample_ishoo_json("ish-a1")]).expect("json should render");
+            output_success_multiple(vec![sample_ish_json("ish-a1")]).expect("json should render");
         let parsed: Value = serde_json::from_str(&rendered).expect("json should parse");
 
         assert_eq!(parsed["success"], Value::Bool(true));
         assert_eq!(parsed["count"], Value::from(1));
         assert_eq!(
-            parsed["ishoos"][0]["id"],
+            parsed["ishes"][0]["id"],
             Value::String("ish-a1".to_string())
         );
     }
@@ -665,10 +657,10 @@ mod tests {
 
     #[test]
     fn build_tree_includes_context_ancestors_and_sorts_children() {
-        let root = tree_ishoo("ish-root", "Root", None, &[], Some("normal"));
-        let alpha = tree_ishoo("ish-alpha", "Alpha", Some("ish-root"), &[], Some("high"));
-        let beta = tree_ishoo("ish-beta", "Beta", Some("ish-root"), &[], Some("low"));
-        let detached = tree_ishoo("ish-detached", "Detached", None, &[], None);
+        let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
+        let alpha = tree_ish("ish-alpha", "Alpha", Some("ish-root"), &[], Some("high"));
+        let beta = tree_ish("ish-beta", "Beta", Some("ish-root"), &[], Some("low"));
+        let detached = tree_ish("ish-detached", "Detached", None, &[], None);
         let all = vec![&root, &alpha, &beta, &detached];
         let filtered = vec![&beta, &alpha];
 
@@ -684,11 +676,11 @@ mod tests {
         );
 
         assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].ishoo.id, "ish-root");
+        assert_eq!(tree[0].ish.id, "ish-root");
         assert!(tree[0].context_only);
         assert_eq!(tree[0].children.len(), 2);
-        assert_eq!(tree[0].children[0].ishoo.id, "ish-alpha");
-        assert_eq!(tree[0].children[1].ishoo.id, "ish-beta");
+        assert_eq!(tree[0].children[0].ish.id, "ish-alpha");
+        assert_eq!(tree[0].children[1].ish.id, "ish-beta");
     }
 
     #[test]
@@ -697,8 +689,8 @@ mod tests {
         control::set_override(false);
 
         let config = Config::default();
-        let root = tree_ishoo("ish-root", "Root", None, &[], Some("normal"));
-        let child = tree_ishoo(
+        let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
+        let child = tree_ish(
             "ish-child",
             "A very long child title for truncation",
             Some("ish-root"),
@@ -732,8 +724,8 @@ mod tests {
     #[test]
     fn render_tree_dims_context_only_ancestors() {
         let config = Config::default();
-        let root = tree_ishoo("ish-root", "Root", None, &[], Some("normal"));
-        let child = tree_ishoo("ish-child", "Child", Some("ish-root"), &[], Some("normal"));
+        let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
+        let child = tree_ish("ish-child", "Child", Some("ish-root"), &[], Some("normal"));
         let tree = build_tree(
             &[&child],
             &[&root, &child],

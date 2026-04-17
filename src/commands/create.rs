@@ -1,6 +1,6 @@
 use crate::app::{AppContext, AppError, json_output_error, store_app_error};
 use crate::cli::CreateArgs;
-use crate::core::store::CreateIshoo;
+use crate::core::store::CreateIsh;
 use crate::output::{ErrorCode, muted, output_success, render_id, success};
 use std::fs;
 use std::io::{self, Read};
@@ -9,11 +9,11 @@ pub(crate) fn create_command(args: CreateArgs, json: bool) -> Result<Option<Stri
     let context = AppContext::load()?;
     let mut store = context.store;
 
-    let ishoo = store
-        .create(CreateIshoo {
+    let ish = store
+        .create(CreateIsh {
             title: args.title.unwrap_or_else(|| "Untitled".to_string()),
             status: args.status,
-            ishoo_type: args.ishoo_type,
+            ish_type: args.ish_type,
             priority: args.priority,
             body: resolve_create_body(args.body, args.body_file)?,
             tags: args.tags,
@@ -26,14 +26,14 @@ pub(crate) fn create_command(args: CreateArgs, json: bool) -> Result<Option<Stri
 
     if json {
         return Ok(Some(
-            output_success(ishoo.to_json(&ishoo.etag())).map_err(json_output_error)?,
+            output_success(ish.to_json(&ish.etag())).map_err(json_output_error)?,
         ));
     }
 
     Ok(Some(success(&format!(
         "Created {} {}",
-        render_id(&ishoo.id),
-        muted(&ishoo.path)
+        render_id(&ish.id),
+        muted(&ish.path)
     ))))
 }
 
@@ -91,7 +91,7 @@ mod tests {
             CreateArgs {
                 title: Some("Ship feature".to_string()),
                 status: None,
-                ishoo_type: None,
+                ish_type: None,
                 priority: None,
                 body: None,
                 body_file: None,
@@ -154,7 +154,7 @@ mod tests {
             CreateArgs {
                 title: Some("Wire command".to_string()),
                 status: Some("in-progress".to_string()),
-                ishoo_type: Some("task".to_string()),
+                ish_type: Some("task".to_string()),
                 priority: Some("high".to_string()),
                 body: None,
                 body_file: Some(body_path.display().to_string()),
@@ -220,7 +220,7 @@ mod tests {
             CreateArgs {
                 title: None,
                 status: None,
-                ishoo_type: None,
+                ish_type: None,
                 priority: None,
                 body: None,
                 body_file: None,
@@ -255,7 +255,7 @@ mod tests {
             CreateArgs {
                 title: Some("Broken".to_string()),
                 status: Some("invalid".to_string()),
-                ishoo_type: None,
+                ish_type: None,
                 priority: None,
                 body: None,
                 body_file: None,

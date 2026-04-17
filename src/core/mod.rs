@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 pub mod store;
 
-use crate::model::ishoo::Ishoo;
+use crate::model::ish::Ish;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,12 +16,12 @@ pub enum SortMode {
 
 #[allow(dead_code)]
 pub fn sort_by_status_priority_and_type<'a>(
-    ishoos: &'a [Ishoo],
+    ishes: &'a [Ish],
     status_names: &[&str],
     priority_names: &[&str],
     type_names: &[&str],
-) -> Vec<&'a Ishoo> {
-    let mut sorted = ishoos.iter().collect::<Vec<_>>();
+) -> Vec<&'a Ish> {
+    let mut sorted = ishes.iter().collect::<Vec<_>>();
     sorted.sort_by(|left, right| {
         status_rank(status_names, &left.status)
             .cmp(&status_rank(status_names, &right.status))
@@ -31,8 +31,7 @@ pub fn sort_by_status_priority_and_type<'a>(
                     .cmp(&priority_rank(priority_names, right.priority.as_deref()))
             })
             .then_with(|| {
-                type_rank(type_names, &left.ishoo_type)
-                    .cmp(&type_rank(type_names, &right.ishoo_type))
+                type_rank(type_names, &left.ish_type).cmp(&type_rank(type_names, &right.ish_type))
             })
             .then_with(|| {
                 left.title
@@ -45,19 +44,19 @@ pub fn sort_by_status_priority_and_type<'a>(
 }
 
 #[allow(dead_code)]
-pub fn sort_ishoos<'a>(
-    ishoos: &'a [Ishoo],
+pub fn sort_ishes<'a>(
+    ishes: &'a [Ish],
     sort_mode: SortMode,
     status_names: &[&str],
     priority_names: &[&str],
     type_names: &[&str],
-) -> Vec<&'a Ishoo> {
+) -> Vec<&'a Ish> {
     match sort_mode {
         SortMode::Default => {
-            sort_by_status_priority_and_type(ishoos, status_names, priority_names, type_names)
+            sort_by_status_priority_and_type(ishes, status_names, priority_names, type_names)
         }
         SortMode::Created => {
-            let mut sorted = ishoos.iter().collect::<Vec<_>>();
+            let mut sorted = ishes.iter().collect::<Vec<_>>();
             sorted.sort_by(|left, right| {
                 left.created_at
                     .cmp(&right.created_at)
@@ -66,7 +65,7 @@ pub fn sort_ishoos<'a>(
             sorted
         }
         SortMode::Updated => {
-            let mut sorted = ishoos.iter().collect::<Vec<_>>();
+            let mut sorted = ishes.iter().collect::<Vec<_>>();
             sorted.sort_by(|left, right| {
                 left.updated_at
                     .cmp(&right.updated_at)
@@ -75,7 +74,7 @@ pub fn sort_ishoos<'a>(
             sorted
         }
         SortMode::Status => {
-            let mut sorted = ishoos.iter().collect::<Vec<_>>();
+            let mut sorted = ishes.iter().collect::<Vec<_>>();
             sorted.sort_by(|left, right| {
                 status_rank(status_names, &left.status)
                     .cmp(&status_rank(status_names, &right.status))
@@ -89,7 +88,7 @@ pub fn sort_ishoos<'a>(
             sorted
         }
         SortMode::Priority => {
-            let mut sorted = ishoos.iter().collect::<Vec<_>>();
+            let mut sorted = ishes.iter().collect::<Vec<_>>();
             sorted.sort_by(|left, right| {
                 priority_rank(priority_names, left.priority.as_deref())
                     .cmp(&priority_rank(priority_names, right.priority.as_deref()))
@@ -103,24 +102,24 @@ pub fn sort_ishoos<'a>(
             sorted
         }
         SortMode::Id => {
-            let mut sorted = ishoos.iter().collect::<Vec<_>>();
+            let mut sorted = ishes.iter().collect::<Vec<_>>();
             sorted.sort_by(|left, right| left.id.cmp(&right.id));
             sorted
         }
     }
 }
 
-/// Return ishoos whose title, slug, or body contains the query.
+/// Return ishes whose title, slug, or body contains the query.
 #[allow(dead_code)]
-pub fn search<'a>(ishoos: &'a [Ishoo], query: &str) -> Vec<&'a Ishoo> {
+pub fn search<'a>(ishes: &'a [Ish], query: &str) -> Vec<&'a Ish> {
     let needle = query.to_lowercase();
 
-    ishoos
+    ishes
         .iter()
-        .filter(|ishoo| {
-            ishoo.title.to_lowercase().contains(&needle)
-                || ishoo.slug.to_lowercase().contains(&needle)
-                || ishoo.body.to_lowercase().contains(&needle)
+        .filter(|ish| {
+            ish.title.to_lowercase().contains(&needle)
+                || ish.slug.to_lowercase().contains(&needle)
+                || ish.body.to_lowercase().contains(&needle)
         })
         .collect()
 }
@@ -149,8 +148,8 @@ fn status_rank(status_names: &[&str], status: &str) -> usize {
 }
 
 #[allow(dead_code)]
-fn type_rank(type_names: &[&str], ishoo_type: &str) -> usize {
-    ordered_rank(type_names, ishoo_type)
+fn type_rank(type_names: &[&str], ish_type: &str) -> usize {
+    ordered_rank(type_names, ish_type)
 }
 
 #[allow(dead_code)]
@@ -168,18 +167,18 @@ fn ordered_rank(names: &[&str], value: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{SortMode, search, sort_by_status_priority_and_type, sort_ishoos};
-    use crate::model::ishoo::Ishoo;
+    use super::{SortMode, search, sort_by_status_priority_and_type, sort_ishes};
+    use crate::model::ish::Ish;
     use chrono::{TimeZone, Utc};
 
-    fn sample_ishoo(id: &str, title: &str, slug: &str, body: &str) -> Ishoo {
-        Ishoo {
+    fn sample_ish(id: &str, title: &str, slug: &str, body: &str) -> Ish {
+        Ish {
             id: id.to_string(),
             slug: slug.to_string(),
             path: format!("{id}--{slug}.md"),
             title: title.to_string(),
             status: "todo".to_string(),
-            ishoo_type: "task".to_string(),
+            ish_type: "task".to_string(),
             priority: None,
             tags: Vec::new(),
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
@@ -192,23 +191,23 @@ mod tests {
         }
     }
 
-    fn sortable_ishoo(
+    fn sortable_ish(
         id: &str,
         title: &str,
         status: &str,
         priority: Option<&str>,
-        ishoo_type: &str,
+        ish_type: &str,
         order: Option<&str>,
         created_at: (i32, u32, u32, u32, u32, u32),
         updated_at: (i32, u32, u32, u32, u32, u32),
-    ) -> Ishoo {
-        Ishoo {
+    ) -> Ish {
+        Ish {
             id: id.to_string(),
             slug: title.to_ascii_lowercase().replace(' ', "-"),
             path: format!("{id}.md"),
             title: title.to_string(),
             status: status.to_string(),
-            ishoo_type: ishoo_type.to_string(),
+            ish_type: ish_type.to_string(),
             priority: priority.map(str::to_string),
             tags: Vec::new(),
             created_at: Utc
@@ -239,21 +238,21 @@ mod tests {
         }
     }
 
-    fn sample_ishoos() -> Vec<Ishoo> {
+    fn sample_ishes() -> Vec<Ish> {
         vec![
-            sample_ishoo(
+            sample_ish(
                 "ish-title",
                 "Fix Widget Search",
                 "fix-widget-search",
                 "Track search regressions here.",
             ),
-            sample_ishoo(
+            sample_ish(
                 "ish-body",
                 "Add filter command",
                 "add-filter-command",
                 "Need a substring query for list output.",
             ),
-            sample_ishoo(
+            sample_ish(
                 "ish-slug",
                 "Polish terminal rendering",
                 "search-rendering-tweaks",
@@ -264,9 +263,9 @@ mod tests {
 
     #[test]
     fn search_matches_title() {
-        let ishoos = sample_ishoos();
+        let ishes = sample_ishes();
 
-        let matches = search(&ishoos, "widget");
+        let matches = search(&ishes, "widget");
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].id, "ish-title");
@@ -274,9 +273,9 @@ mod tests {
 
     #[test]
     fn search_matches_body() {
-        let ishoos = sample_ishoos();
+        let ishes = sample_ishes();
 
-        let matches = search(&ishoos, "substring query");
+        let matches = search(&ishes, "substring query");
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].id, "ish-body");
@@ -284,9 +283,9 @@ mod tests {
 
     #[test]
     fn search_matches_slug() {
-        let ishoos = sample_ishoos();
+        let ishes = sample_ishes();
 
-        let matches = search(&ishoos, "rendering-tweaks");
+        let matches = search(&ishes, "rendering-tweaks");
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].id, "ish-slug");
@@ -294,9 +293,9 @@ mod tests {
 
     #[test]
     fn search_is_case_insensitive() {
-        let ishoos = sample_ishoos();
+        let ishes = sample_ishes();
 
-        let matches = search(&ishoos, "SeArCh");
+        let matches = search(&ishes, "SeArCh");
 
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].id, "ish-title");
@@ -305,17 +304,17 @@ mod tests {
 
     #[test]
     fn search_returns_empty_when_nothing_matches() {
-        let ishoos = sample_ishoos();
+        let ishes = sample_ishes();
 
-        let matches = search(&ishoos, "milestone");
+        let matches = search(&ishes, "milestone");
 
         assert!(matches.is_empty());
     }
 
     #[test]
     fn default_sort_orders_by_status_manual_order_priority_type_and_title() {
-        let ishoos = vec![
-            sortable_ishoo(
+        let ishes = vec![
+            sortable_ish(
                 "ish-c",
                 "gamma",
                 "todo",
@@ -325,7 +324,7 @@ mod tests {
                 (2026, 1, 3, 0, 0, 0),
                 (2026, 1, 3, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-a",
                 "Alpha",
                 "in-progress",
@@ -335,7 +334,7 @@ mod tests {
                 (2026, 1, 1, 0, 0, 0),
                 (2026, 1, 4, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-b",
                 "beta",
                 "todo",
@@ -345,7 +344,7 @@ mod tests {
                 (2026, 1, 2, 0, 0, 0),
                 (2026, 1, 2, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-d",
                 "delta",
                 "todo",
@@ -358,7 +357,7 @@ mod tests {
         ];
 
         let sorted = sort_by_status_priority_and_type(
-            &ishoos,
+            &ishes,
             &["in-progress", "todo", "completed"],
             &["critical", "high", "normal", "low"],
             &["bug", "feature", "task"],
@@ -369,8 +368,8 @@ mod tests {
 
     #[test]
     fn default_sort_places_unrecognized_values_last() {
-        let ishoos = vec![
-            sortable_ishoo(
+        let ishes = vec![
+            sortable_ish(
                 "ish-known",
                 "Known",
                 "todo",
@@ -380,7 +379,7 @@ mod tests {
                 (2026, 1, 1, 0, 0, 0),
                 (2026, 1, 1, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-unknown-status",
                 "Unknown status",
                 "waiting",
@@ -390,7 +389,7 @@ mod tests {
                 (2026, 1, 1, 0, 0, 0),
                 (2026, 1, 1, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-unknown-priority",
                 "Unknown priority",
                 "todo",
@@ -400,7 +399,7 @@ mod tests {
                 (2026, 1, 1, 0, 0, 0),
                 (2026, 1, 1, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-unknown-type",
                 "Unknown type",
                 "todo",
@@ -412,7 +411,7 @@ mod tests {
             ),
         ];
 
-        let sorted = sort_by_status_priority_and_type(&ishoos, &["todo"], &["normal"], &["task"]);
+        let sorted = sort_by_status_priority_and_type(&ishes, &["todo"], &["normal"], &["task"]);
 
         assert_eq!(
             ids(sorted),
@@ -427,8 +426,8 @@ mod tests {
 
     #[test]
     fn sort_modes_cover_created_updated_priority_status_and_id() {
-        let ishoos = vec![
-            sortable_ishoo(
+        let ishes = vec![
+            sortable_ish(
                 "ish-c",
                 "Charlie",
                 "todo",
@@ -438,7 +437,7 @@ mod tests {
                 (2026, 1, 3, 0, 0, 0),
                 (2026, 1, 1, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-a",
                 "Alpha",
                 "in-progress",
@@ -448,7 +447,7 @@ mod tests {
                 (2026, 1, 1, 0, 0, 0),
                 (2026, 1, 3, 0, 0, 0),
             ),
-            sortable_ishoo(
+            sortable_ish(
                 "ish-b",
                 "Bravo",
                 "waiting",
@@ -461,8 +460,8 @@ mod tests {
         ];
 
         assert_eq!(
-            ids(sort_ishoos(
-                &ishoos,
+            ids(sort_ishes(
+                &ishes,
                 SortMode::Created,
                 &["in-progress", "todo"],
                 &["critical", "high", "normal", "low"],
@@ -471,8 +470,8 @@ mod tests {
             vec!["ish-a", "ish-b", "ish-c"]
         );
         assert_eq!(
-            ids(sort_ishoos(
-                &ishoos,
+            ids(sort_ishes(
+                &ishes,
                 SortMode::Updated,
                 &["in-progress", "todo"],
                 &["critical", "high", "normal", "low"],
@@ -481,8 +480,8 @@ mod tests {
             vec!["ish-c", "ish-b", "ish-a"]
         );
         assert_eq!(
-            ids(sort_ishoos(
-                &ishoos,
+            ids(sort_ishes(
+                &ishes,
                 SortMode::Status,
                 &["in-progress", "todo"],
                 &["critical", "high", "normal", "low"],
@@ -491,8 +490,8 @@ mod tests {
             vec!["ish-a", "ish-c", "ish-b"]
         );
         assert_eq!(
-            ids(sort_ishoos(
-                &ishoos,
+            ids(sort_ishes(
+                &ishes,
                 SortMode::Priority,
                 &["in-progress", "todo"],
                 &["critical", "high", "normal", "low"],
@@ -501,8 +500,8 @@ mod tests {
             vec!["ish-a", "ish-b", "ish-c"]
         );
         assert_eq!(
-            ids(sort_ishoos(
-                &ishoos,
+            ids(sort_ishes(
+                &ishes,
                 SortMode::Id,
                 &["in-progress", "todo"],
                 &["critical", "high", "normal", "low"],
@@ -512,7 +511,7 @@ mod tests {
         );
     }
 
-    fn ids(ishoos: Vec<&Ishoo>) -> Vec<&str> {
-        ishoos.into_iter().map(|ishoo| ishoo.id.as_str()).collect()
+    fn ids(ishes: Vec<&Ish>) -> Vec<&str> {
+        ishes.into_iter().map(|ish| ish.id.as_str()).collect()
     }
 }

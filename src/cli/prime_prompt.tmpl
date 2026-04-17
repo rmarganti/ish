@@ -6,8 +6,8 @@ Use `ish` as the source of truth for work in {{project_name}}.
 
 - Workspace path: `{{config_path}}`
 - Prefix new IDs with `{{prefix}}-`
-- Default new ishoo type: `{{default_type}}`
-- Default new ishoo status: `{{default_status}}`
+- Default new ish type: `{{default_type}}`
+- Default new ish status: `{{default_status}}`
 
 ## CLI Command Reference
 
@@ -15,15 +15,15 @@ Use `ish` as the source of truth for work in {{project_name}}.
 
 Use `ish list --json` for machine-readable output. Prefer structured output whenever a command supports it so agents can parse results instead of scraping terminal text.
 
-## Ishoo Types
+## Ish Types
 
 {{types}}
 
-## Ishoo Statuses
+## Ish Statuses
 
 {{statuses}}
 
-## Ishoo Priorities
+## Ish Priorities
 
 {{priorities}}
 
@@ -36,20 +36,20 @@ Use `ish list --json` for machine-readable output. Prefer structured output when
 
 ## Concurrency Control
 
-- Read the latest ishoo content before editing it.
+- Read the latest ish content before editing it.
 - Use `ish update --if-match <etag>` when protecting an in-place edit against concurrent changes.
 - Capture the current etag from `ish list --json --full` before attempting a guarded update.
-- If the underlying file changes between read and write, reload the ishoo and reapply the intended edit against the newest content.
+- If the underlying file changes between read and write, reload the ish and reapply the intended edit against the newest content.
 
 ## Relationship Model
 
-- `parent`: hierarchy only; use it to group related ishoos under milestones, epics, or larger features.
-- `blocking`: IDs of ishoos that this ishoo is actively blocking.
-- `blocked_by`: IDs of prerequisites that must finish before this ishoo can move forward.
+- `parent`: hierarchy only; use it to group related ishes under milestones, epics, or larger features.
+- `blocking`: IDs of ishes that this ish is actively blocking.
+- `blocked_by`: IDs of prerequisites that must finish before this ish can move forward.
 - Do not infer blocking from parent/child relationships alone; hierarchy and dependency links mean different things.
 
 ## Working Rules For Agents
 
 - Prefer small, focused edits that keep the existing structure intact.
-- Record useful implementation notes, verification details, and follow-up context in the relevant ishoo before marking it complete.
+- Record useful implementation notes, verification details, and follow-up context in the relevant ish before marking it complete.
 - Run the project validation loop after changes and fix failures before considering the work done.

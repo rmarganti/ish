@@ -107,8 +107,8 @@ impl Config {
         self.get_status(status).is_some()
     }
 
-    pub fn is_valid_type(&self, ishoo_type: &str) -> bool {
-        self.get_type(ishoo_type).is_some()
+    pub fn is_valid_type(&self, ish_type: &str) -> bool {
+        self.get_type(ish_type).is_some()
     }
 
     pub fn is_valid_priority(&self, priority: &str) -> bool {
@@ -120,10 +120,7 @@ impl Config {
     }
 
     pub fn type_names(&self) -> Vec<&'static str> {
-        self.types
-            .iter()
-            .map(|ishoo_type| ishoo_type.name)
-            .collect()
+        self.types.iter().map(|ish_type| ish_type.name).collect()
     }
 
     pub fn priority_names(&self) -> Vec<&'static str> {
@@ -142,7 +139,7 @@ impl Config {
     }
 
     pub fn get_type(&self, name: &str) -> Option<&TypeConfig> {
-        self.types.iter().find(|ishoo_type| ishoo_type.name == name)
+        self.types.iter().find(|ish_type| ish_type.name == name)
     }
 
     pub fn get_priority(&self, name: &str) -> Option<&PriorityConfig> {
@@ -387,7 +384,7 @@ mod tests {
             Some("gray")
         );
         assert_eq!(
-            loaded.get_type("epic").map(|ishoo_type| ishoo_type.color),
+            loaded.get_type("epic").map(|ish_type| ish_type.color),
             Some("purple")
         );
         assert_eq!(
@@ -433,7 +430,7 @@ mod tests {
             Some("yellow")
         );
         assert_eq!(
-            config.get_type("bug").map(|ishoo_type| ishoo_type.color),
+            config.get_type("bug").map(|ish_type| ish_type.color),
             Some("red")
         );
         assert_eq!(

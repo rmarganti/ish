@@ -19,9 +19,9 @@ const BLOCKED_SUBSTRINGS: &[&str] = &[
     "pussy", "sex", "shit", "slut", "tit", "twat", "vag",
 ];
 
-/// The core issue type. An Ishoo is stored as a markdown file with YAML frontmatter.
+/// The core issue type. An Ish is stored as a markdown file with YAML frontmatter.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Ishoo {
+pub struct Ish {
     /// Unique identifier (e.g. "ish-a1b2").
     pub id: String,
     /// URL-friendly slug derived from the title.
@@ -33,7 +33,7 @@ pub struct Ishoo {
     /// Current status.
     pub status: String,
     /// Issue type (task, bug, feature, epic, milestone).
-    pub ishoo_type: String,
+    pub ish_type: String,
     /// Priority level.
     pub priority: Option<String>,
     /// Freeform tags.
@@ -54,14 +54,14 @@ pub struct Ishoo {
     pub blocked_by: Vec<String>,
 }
 
-/// The subset of `Ishoo` fields that are serialized into YAML frontmatter.
+/// The subset of `Ish` fields that are serialized into YAML frontmatter.
 /// Excludes `id`, `slug`, `path`, and `body`.
 #[derive(Debug, Serialize, Deserialize)]
 struct Frontmatter {
     title: String,
     status: String,
     #[serde(rename = "type")]
-    ishoo_type: String,
+    ish_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -80,14 +80,14 @@ struct Frontmatter {
 
 /// JSON output representation (all fields + computed etag).
 #[derive(Debug, Serialize)]
-pub struct IshooJson {
+pub struct IshJson {
     pub id: String,
     pub slug: String,
     pub path: String,
     pub title: String,
     pub status: String,
     #[serde(rename = "type")]
-    pub ishoo_type: String,
+    pub ish_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -169,8 +169,8 @@ impl std::error::Error for ParseError {
     }
 }
 
-impl Ishoo {
-    /// Parse an `Ishoo` from the raw content of a `.md` file.
+impl Ish {
+    /// Parse an `Ish` from the raw content of a `.md` file.
     ///
     /// The `filename` is used to derive `id`, `slug`, and `path`.
     /// Expected file format:
@@ -197,13 +197,13 @@ impl Ishoo {
             id.to_string()
         };
 
-        Ok(Ishoo {
+        Ok(Ish {
             id,
             slug,
             path: filename.to_string(),
             title: fm.title,
             status: fm.status,
-            ishoo_type: fm.ishoo_type,
+            ish_type: fm.ish_type,
             priority: fm.priority,
             tags: fm.tags,
             created_at: fm.created_at,
@@ -216,7 +216,7 @@ impl Ishoo {
         })
     }
 
-    /// Render the `Ishoo` back to the `.md` file format.
+    /// Render the `Ish` back to the `.md` file format.
     pub fn render(&self) -> String {
         self.try_render().expect("failed to serialize frontmatter")
     }
@@ -225,7 +225,7 @@ impl Ishoo {
         let fm = Frontmatter {
             title: self.title.clone(),
             status: self.status.clone(),
-            ishoo_type: self.ishoo_type.clone(),
+            ish_type: self.ish_type.clone(),
             priority: self.priority.clone(),
             tags: self.tags.clone(),
             created_at: self.created_at,
@@ -267,14 +267,14 @@ impl Ishoo {
     }
 
     /// Convert to JSON-serializable representation.
-    pub fn to_json(&self, etag: &str) -> IshooJson {
-        IshooJson {
+    pub fn to_json(&self, etag: &str) -> IshJson {
+        IshJson {
             id: self.id.clone(),
             slug: self.slug.clone(),
             path: self.path.clone(),
             title: self.title.clone(),
             status: self.status.clone(),
-            ishoo_type: self.ishoo_type.clone(),
+            ish_type: self.ish_type.clone(),
             priority: self.priority.clone(),
             tags: self.tags.clone(),
             created_at: self.created_at,
@@ -653,14 +653,14 @@ The widget is broken.
         .to_string()
     }
 
-    fn sample_ishoo() -> Ishoo {
-        Ishoo {
+    fn sample_ish() -> Ish {
+        Ish {
             id: "ish-a1b2".to_string(),
             slug: "fix-the-widget".to_string(),
             path: "ish-a1b2--fix-the-widget.md".to_string(),
             title: "Fix the widget".to_string(),
             status: "todo".to_string(),
-            ishoo_type: "bug".to_string(),
+            ish_type: "bug".to_string(),
             priority: Some("high".to_string()),
             tags: vec!["ui".to_string(), "regression".to_string()],
             created_at: Utc.with_ymd_and_hms(2026, 1, 15, 10, 30, 0).unwrap(),
@@ -675,22 +675,22 @@ The widget is broken.
 
     #[test]
     fn test_parse_basic() {
-        let ishoo =
-            Ishoo::parse("ish-a1b2--fix-the-widget.md", &sample_content()).expect("parse failed");
+        let ish =
+            Ish::parse("ish-a1b2--fix-the-widget.md", &sample_content()).expect("parse failed");
 
-        assert_eq!(ishoo.id, "ish-a1b2");
-        assert_eq!(ishoo.slug, "fix-the-widget");
-        assert_eq!(ishoo.path, "ish-a1b2--fix-the-widget.md");
-        assert_eq!(ishoo.title, "Fix the widget");
-        assert_eq!(ishoo.status, "todo");
-        assert_eq!(ishoo.ishoo_type, "bug");
-        assert_eq!(ishoo.priority, Some("high".to_string()));
-        assert_eq!(ishoo.tags, vec!["ui", "regression"]);
-        assert_eq!(ishoo.parent, Some("ish-p001".to_string()));
-        assert_eq!(ishoo.blocking, vec!["ish-x001"]);
-        assert_eq!(ishoo.blocked_by, vec!["ish-y001"]);
-        assert!(ishoo.body.contains("The widget is broken."));
-        assert!(ishoo.body.contains("Steps to Reproduce"));
+        assert_eq!(ish.id, "ish-a1b2");
+        assert_eq!(ish.slug, "fix-the-widget");
+        assert_eq!(ish.path, "ish-a1b2--fix-the-widget.md");
+        assert_eq!(ish.title, "Fix the widget");
+        assert_eq!(ish.status, "todo");
+        assert_eq!(ish.ish_type, "bug");
+        assert_eq!(ish.priority, Some("high".to_string()));
+        assert_eq!(ish.tags, vec!["ui", "regression"]);
+        assert_eq!(ish.parent, Some("ish-p001".to_string()));
+        assert_eq!(ish.blocking, vec!["ish-x001"]);
+        assert_eq!(ish.blocked_by, vec!["ish-y001"]);
+        assert!(ish.body.contains("The widget is broken."));
+        assert!(ish.body.contains("Steps to Reproduce"));
     }
 
     #[test]
@@ -704,30 +704,30 @@ created_at: 2026-01-01T00:00:00Z
 updated_at: 2026-01-01T00:00:00Z
 ---
 "#;
-        let ishoo = Ishoo::parse("ish-min1.md", content).expect("parse failed");
+        let ish = Ish::parse("ish-min1.md", content).expect("parse failed");
 
-        assert_eq!(ishoo.id, "ish-min1");
-        assert_eq!(ishoo.slug, "");
-        assert_eq!(ishoo.title, "Minimal issue");
-        assert_eq!(ishoo.priority, None);
-        assert!(ishoo.tags.is_empty());
-        assert!(ishoo.body.is_empty());
-        assert!(ishoo.parent.is_none());
-        assert!(ishoo.blocking.is_empty());
-        assert!(ishoo.blocked_by.is_empty());
+        assert_eq!(ish.id, "ish-min1");
+        assert_eq!(ish.slug, "");
+        assert_eq!(ish.title, "Minimal issue");
+        assert_eq!(ish.priority, None);
+        assert!(ish.tags.is_empty());
+        assert!(ish.body.is_empty());
+        assert!(ish.parent.is_none());
+        assert!(ish.blocking.is_empty());
+        assert!(ish.blocked_by.is_empty());
     }
 
     #[test]
     fn test_render_round_trip() {
-        let original = sample_ishoo();
+        let original = sample_ish();
         let rendered = original.render();
-        let parsed = Ishoo::parse("ish-a1b2--fix-the-widget.md", &rendered)
-            .expect("round-trip parse failed");
+        let parsed =
+            Ish::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("round-trip parse failed");
 
         assert_eq!(original.id, parsed.id);
         assert_eq!(original.title, parsed.title);
         assert_eq!(original.status, parsed.status);
-        assert_eq!(original.ishoo_type, parsed.ishoo_type);
+        assert_eq!(original.ish_type, parsed.ish_type);
         assert_eq!(original.priority, parsed.priority);
         assert_eq!(original.tags, parsed.tags);
         assert_eq!(original.parent, parsed.parent);
@@ -738,25 +738,25 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_render_empty_body() {
-        let mut ishoo = sample_ishoo();
-        ishoo.body = String::new();
+        let mut ish = sample_ish();
+        ish.body = String::new();
 
-        let rendered = ishoo.render();
+        let rendered = ish.render();
         assert!(rendered.ends_with("---\n"));
 
-        let parsed = Ishoo::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("parse failed");
+        let parsed = Ish::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("parse failed");
         assert!(parsed.body.is_empty());
     }
 
     #[test]
     fn test_render_minimal_fields() {
-        let ishoo = Ishoo {
+        let ish = Ish {
             id: "ish-x1".to_string(),
             slug: "simple".to_string(),
             path: "ish-x1--simple.md".to_string(),
             title: "Simple".to_string(),
             status: "todo".to_string(),
-            ishoo_type: "task".to_string(),
+            ish_type: "task".to_string(),
             priority: None,
             tags: vec![],
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
@@ -768,7 +768,7 @@ updated_at: 2026-01-01T00:00:00Z
             blocked_by: vec![],
         };
 
-        let rendered = ishoo.render();
+        let rendered = ish.render();
 
         // Optional fields should not appear in the YAML.
         assert!(!rendered.contains("priority:"));
@@ -782,7 +782,7 @@ updated_at: 2026-01-01T00:00:00Z
     #[test]
     fn test_parse_missing_frontmatter() {
         let content = "Just some markdown\n\nNo frontmatter here.";
-        let result = Ishoo::parse("bad.md", content);
+        let result = Ish::parse("bad.md", content);
         assert!(matches!(result, Err(ParseError::MissingFrontmatter)));
     }
 
@@ -796,7 +796,7 @@ created_at: 2026-01-01T00:00:00Z
 updated_at: 2026-01-01T00:00:00Z
 ---
 "#;
-        let result = Ishoo::parse("no-id.md", content);
+        let result = Ish::parse("no-id.md", content);
         assert!(matches!(result, Err(ParseError::MissingId)));
     }
 
@@ -907,12 +907,12 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_to_json() {
-        let ishoo = sample_ishoo();
-        let json = ishoo.to_json("abc123");
+        let ish = sample_ish();
+        let json = ish.to_json("abc123");
 
         assert_eq!(json.id, "ish-a1b2");
         assert_eq!(json.etag, "abc123");
-        assert_eq!(json.ishoo_type, "bug");
+        assert_eq!(json.ish_type, "bug");
 
         // Verify it serializes to JSON without error.
         let json_str = serde_json::to_string(&json).expect("JSON serialize failed");
@@ -922,16 +922,16 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_etag_is_deterministic_for_same_content() {
-        let first = sample_ishoo();
-        let second = sample_ishoo();
+        let first = sample_ish();
+        let second = sample_ish();
 
         assert_eq!(first.etag(), second.etag());
     }
 
     #[test]
     fn test_etag_changes_when_content_changes() {
-        let first = sample_ishoo();
-        let mut second = sample_ishoo();
+        let first = sample_ish();
+        let mut second = sample_ish();
         second.title = "Fix the other widget".to_string();
 
         assert_ne!(first.etag(), second.etag());
@@ -939,17 +939,17 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_etag_matches_expected_hash() {
-        let ishoo = sample_ishoo();
+        let ish = sample_ish();
 
-        assert_eq!(ishoo.etag(), "bf9cff0b18dcadde");
+        assert_eq!(ish.etag(), "bf9cff0b18dcadde");
     }
 
     #[test]
     fn test_round_trip_parse_render_parse() {
         let content = sample_content();
-        let first = Ishoo::parse("ish-a1b2--fix-the-widget.md", &content).expect("first parse");
+        let first = Ish::parse("ish-a1b2--fix-the-widget.md", &content).expect("first parse");
         let rendered = first.render();
-        let second = Ishoo::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("second parse");
+        let second = Ish::parse("ish-a1b2--fix-the-widget.md", &rendered).expect("second parse");
 
         assert_eq!(first, second);
     }
@@ -976,35 +976,35 @@ updated_at: 2026-01-01T00:00:00Z
 
     #[test]
     fn test_has_tag_uses_normalized_lookup() {
-        let ishoo = sample_ishoo();
+        let ish = sample_ish();
 
-        assert!(ishoo.has_tag(" UI "));
-        assert!(!ishoo.has_tag("backend"));
+        assert!(ish.has_tag(" UI "));
+        assert!(!ish.has_tag("backend"));
     }
 
     #[test]
     fn test_add_tag_normalizes_and_avoids_duplicates() {
-        let mut ishoo = sample_ishoo();
+        let mut ish = sample_ish();
 
-        assert_eq!(ishoo.add_tag("  Backend  "), Ok(true));
-        assert_eq!(ishoo.add_tag("backend"), Ok(false));
-        assert_eq!(ishoo.tags, vec!["ui", "regression", "backend"]);
+        assert_eq!(ish.add_tag("  Backend  "), Ok(true));
+        assert_eq!(ish.add_tag("backend"), Ok(false));
+        assert_eq!(ish.tags, vec!["ui", "regression", "backend"]);
     }
 
     #[test]
     fn test_add_tag_rejects_invalid_values() {
-        let mut ishoo = sample_ishoo();
+        let mut ish = sample_ish();
 
-        assert_eq!(ishoo.add_tag("Not Valid"), Err(TagError::InvalidTag));
+        assert_eq!(ish.add_tag("Not Valid"), Err(TagError::InvalidTag));
     }
 
     #[test]
     fn test_remove_tag_uses_normalized_lookup() {
-        let mut ishoo = sample_ishoo();
+        let mut ish = sample_ish();
 
-        assert!(ishoo.remove_tag(" REGRESSION "));
-        assert!(!ishoo.remove_tag("backend"));
-        assert_eq!(ishoo.tags, vec!["ui"]);
+        assert!(ish.remove_tag(" REGRESSION "));
+        assert!(!ish.remove_tag("backend"));
+        assert_eq!(ish.tags, vec!["ui"]);
     }
 
     #[test]

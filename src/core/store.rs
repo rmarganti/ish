@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::model::ishoo::{
-    BodyError, Ishoo, append_with_separator, build_filename, new_id, replace_once, slugify,
+use crate::model::ish::{
+    BodyError, Ish, append_with_separator, build_filename, new_id, replace_once, slugify,
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -17,7 +17,7 @@ const ARCHIVE_DIR_NAME: &str = "archive";
 pub struct Store {
     root: PathBuf,
     config: Config,
-    ishoos: HashMap<String, Ishoo>,
+    ishes: HashMap<String, Ish>,
 }
 
 #[derive(Debug)]
@@ -49,10 +49,10 @@ pub enum StoreError {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CreateIshoo {
+pub struct CreateIsh {
     pub title: String,
     pub status: Option<String>,
-    pub ishoo_type: Option<String>,
+    pub ish_type: Option<String>,
     pub priority: Option<String>,
     pub body: String,
     pub tags: Vec<String>,
@@ -63,9 +63,9 @@ pub struct CreateIshoo {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct UpdateIshoo {
+pub struct UpdateIsh {
     pub status: Option<String>,
-    pub ishoo_type: Option<String>,
+    pub ish_type: Option<String>,
     pub priority: Option<Option<String>>,
     pub title: Option<String>,
     pub body: Option<String>,
@@ -88,7 +88,7 @@ struct DiskFrontmatter {
     #[serde(default)]
     status: String,
     #[serde(rename = "type", default)]
-    ishoo_type: String,
+    ish_type: String,
     #[serde(default)]
     priority: Option<String>,
     #[serde(default)]
@@ -147,37 +147,37 @@ impl Store {
         Ok(Self {
             root,
             config,
-            ishoos: HashMap::new(),
+            ishes: HashMap::new(),
         })
     }
 
     pub fn load(&mut self) -> Result<(), StoreError> {
-        self.ishoos.clear();
+        self.ishes.clear();
         let root = self.root.clone();
         self.load_dir(&root)
     }
 
-    pub fn all(&self) -> Vec<&Ishoo> {
-        self.ishoos.values().collect()
+    pub fn all(&self) -> Vec<&Ish> {
+        self.ishes.values().collect()
     }
 
-    pub fn get(&self, id: &str) -> Option<&Ishoo> {
-        self.ishoos
+    pub fn get(&self, id: &str) -> Option<&Ish> {
+        self.ishes
             .get(id)
-            .or_else(|| self.ishoos.get(&self.normalize_id(id)))
+            .or_else(|| self.ishes.get(&self.normalize_id(id)))
     }
 
-    pub fn create(&mut self, input: CreateIshoo) -> Result<Ishoo, StoreError> {
+    pub fn create(&mut self, input: CreateIsh) -> Result<Ish, StoreError> {
         let status = input
             .status
             .unwrap_or_else(|| self.config.ish.default_status.clone());
-        let ishoo_type = input
-            .ishoo_type
+        let ish_type = input
+            .ish_type
             .unwrap_or_else(|| self.config.ish.default_type.clone());
         let priority = input.priority.or_else(|| Some("normal".to_string()));
 
         self.validate_status(&status)?;
-        self.validate_type(&ishoo_type)?;
+        self.validate_type(&ish_type)?;
         if let Some(priority_name) = priority.as_deref() {
             self.validate_priority(priority_name)?;
         }
@@ -186,13 +186,13 @@ impl Store {
         let slug = slugify(&input.title);
         let path = build_filename(&id, &slug);
         let now = Utc::now();
-        let mut ishoo = Ishoo {
+        let mut ish = Ish {
             id: id.clone(),
             slug,
             path,
             title: input.title,
             status,
-            ishoo_type,
+            ish_type,
             priority,
             tags: Vec::new(),
             created_at: now,
@@ -205,24 +205,23 @@ impl Store {
         };
 
         for tag in input.tags {
-            ishoo
-                .add_tag(&tag)
+            ish.add_tag(&tag)
                 .map_err(|_| StoreError::InvalidTag(tag.clone()))?;
         }
 
-        if let Some(parent_id) = ishoo.parent.as_deref() {
-            self.validate_parent(&ishoo, parent_id)?;
+        if let Some(parent_id) = ish.parent.as_deref() {
+            self.validate_parent(&ish, parent_id)?;
         }
 
-        self.save_to_disk(&ishoo)?;
-        self.ishoos.insert(id, ishoo.clone());
-        Ok(ishoo)
+        self.save_to_disk(&ish)?;
+        self.ishes.insert(id, ish.clone());
+        Ok(ish)
     }
 
-    pub fn update(&mut self, id: &str, changes: UpdateIshoo) -> Result<Ishoo, StoreError> {
+    pub fn update(&mut self, id: &str, changes: UpdateIsh) -> Result<Ish, StoreError> {
         let normalized_id = self.normalize_id(id);
         let current = self
-            .ishoos
+            .ishes
             .get(&normalized_id)
             .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
             .clone();
@@ -244,9 +243,9 @@ impl Store {
             updated.status = status;
         }
 
-        if let Some(ishoo_type) = changes.ishoo_type {
-            self.validate_type(&ishoo_type)?;
-            updated.ishoo_type = ishoo_type;
+        if let Some(ish_type) = changes.ish_type {
+            self.validate_type(&ish_type)?;
+            updated.ish_type = ish_type;
         }
 
         if let Some(priority) = changes.priority {
@@ -314,14 +313,14 @@ impl Store {
         }
 
         self.save_to_disk(&updated)?;
-        self.ishoos.insert(normalized_id, updated.clone());
+        self.ishes.insert(normalized_id, updated.clone());
         Ok(updated)
     }
 
-    pub fn delete(&mut self, id: &str) -> Result<Ishoo, StoreError> {
+    pub fn delete(&mut self, id: &str) -> Result<Ish, StoreError> {
         let normalized_id = self.normalize_id(id);
         let removed = self
-            .ishoos
+            .ishes
             .remove(&normalized_id)
             .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?;
 
@@ -329,7 +328,7 @@ impl Store {
         fs::remove_file(&path).map_err(StoreError::Io)?;
 
         let mut dirty_ids = Vec::new();
-        for (other_id, other) in &mut self.ishoos {
+        for (other_id, other) in &mut self.ishes {
             let mut dirty = false;
 
             if other.parent.as_deref() == Some(normalized_id.as_str()) {
@@ -347,23 +346,23 @@ impl Store {
         }
 
         for dirty_id in dirty_ids {
-            let ishoo = self
-                .ishoos
+            let ish = self
+                .ishes
                 .get(&dirty_id)
                 .ok_or_else(|| StoreError::NotFound(dirty_id.clone()))?
                 .clone();
-            self.save_to_disk(&ishoo)?;
+            self.save_to_disk(&ish)?;
         }
 
         Ok(removed)
     }
 
-    pub fn save_to_disk(&self, ishoo: &Ishoo) -> Result<(), StoreError> {
-        let path = self.root.join(&ishoo.path);
+    pub fn save_to_disk(&self, ish: &Ish) -> Result<(), StoreError> {
+        let path = self.root.join(&ish.path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(StoreError::Io)?;
         }
-        fs::write(path, ishoo.render()).map_err(StoreError::Io)
+        fs::write(path, ish.render()).map_err(StoreError::Io)
     }
 
     pub fn normalize_id(&self, id: &str) -> String {
@@ -378,7 +377,7 @@ impl Store {
 
     pub fn archive(&mut self, id: &str) -> Result<(), StoreError> {
         let normalized_id = self.normalize_id(id);
-        let source_path = self.ishoo_absolute_path(&normalized_id)?;
+        let source_path = self.ish_absolute_path(&normalized_id)?;
         let file_name = source_path
             .file_name()
             .ok_or_else(|| StoreError::InvalidPath(source_path.clone()))?;
@@ -389,7 +388,7 @@ impl Store {
         fs::rename(&source_path, &destination_path).map_err(StoreError::Io)?;
 
         let relative_path = self.relative_path(&destination_path)?;
-        self.ishoos
+        self.ishes
             .get_mut(&normalized_id)
             .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
             .path = relative_path;
@@ -398,7 +397,7 @@ impl Store {
 
     pub fn unarchive(&mut self, id: &str) -> Result<(), StoreError> {
         let normalized_id = self.normalize_id(id);
-        let source_path = self.ishoo_absolute_path(&normalized_id)?;
+        let source_path = self.ish_absolute_path(&normalized_id)?;
         let file_name = source_path
             .file_name()
             .ok_or_else(|| StoreError::InvalidPath(source_path.clone()))?;
@@ -407,7 +406,7 @@ impl Store {
         fs::rename(&source_path, &destination_path).map_err(StoreError::Io)?;
 
         let relative_path = self.relative_path(&destination_path)?;
-        self.ishoos
+        self.ishes
             .get_mut(&normalized_id)
             .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?
             .path = relative_path;
@@ -416,22 +415,22 @@ impl Store {
 
     pub fn is_archived(&self, id: &str) -> Result<bool, StoreError> {
         let normalized_id = self.normalize_id(id);
-        let ishoo = self
-            .ishoos
+        let ish = self
+            .ishes
             .get(&normalized_id)
             .ok_or(StoreError::NotFound(normalized_id))?;
-        Ok(ishoo.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/")))
+        Ok(ish.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/")))
     }
 
     pub fn load_and_unarchive(&mut self, id: &str) -> Result<(), StoreError> {
         let normalized_id = self.normalize_id(id);
 
-        if self.ishoos.contains_key(&normalized_id) {
+        if self.ishes.contains_key(&normalized_id) {
             return self.unarchive(&normalized_id);
         }
 
         let archive_path = self.find_archived_path(&normalized_id)?;
-        let mut ishoo = self.load_ishoo(&archive_path)?;
+        let mut ish = self.load_ish(&archive_path)?;
         let destination_path = self.root.join(
             archive_path
                 .file_name()
@@ -440,20 +439,20 @@ impl Store {
 
         fs::rename(&archive_path, &destination_path).map_err(StoreError::Io)?;
 
-        ishoo.path = self.relative_path(&destination_path)?;
-        self.ishoos.insert(ishoo.id.clone(), ishoo);
+        ish.path = self.relative_path(&destination_path)?;
+        self.ishes.insert(ish.id.clone(), ish);
         Ok(())
     }
 
     pub fn archive_all_completed(&mut self) -> Result<usize, StoreError> {
         let ids_to_archive = self
-            .ishoos
+            .ishes
             .values()
-            .filter(|ishoo| {
-                self.config.is_archive_status(&ishoo.status)
-                    && !ishoo.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/"))
+            .filter(|ish| {
+                self.config.is_archive_status(&ish.status)
+                    && !ish.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/"))
             })
-            .map(|ishoo| ishoo.id.clone())
+            .map(|ish| ish.id.clone())
             .collect::<Vec<_>>();
 
         for id in &ids_to_archive {
@@ -471,29 +470,29 @@ impl Store {
         let target_id = self.normalize_id(target_id);
         let mut incoming = Vec::new();
 
-        for ishoo in self.ishoos.values() {
-            if ishoo.parent.as_deref() == Some(target_id.as_str()) {
+        for ish in self.ishes.values() {
+            if ish.parent.as_deref() == Some(target_id.as_str()) {
                 incoming.push(LinkRef {
-                    source_id: ishoo.id.clone(),
+                    source_id: ish.id.clone(),
                     link_type: LinkType::Parent,
                     target_id: target_id.clone(),
                 });
             }
 
-            for linked_id in &ishoo.blocking {
+            for linked_id in &ish.blocking {
                 if linked_id == &target_id {
                     incoming.push(LinkRef {
-                        source_id: ishoo.id.clone(),
+                        source_id: ish.id.clone(),
                         link_type: LinkType::Blocking,
                         target_id: target_id.clone(),
                     });
                 }
             }
 
-            for linked_id in &ishoo.blocked_by {
+            for linked_id in &ish.blocked_by {
                 if linked_id == &target_id {
                     incoming.push(LinkRef {
-                        source_id: ishoo.id.clone(),
+                        source_id: ish.id.clone(),
                         link_type: LinkType::BlockedBy,
                         target_id: target_id.clone(),
                     });
@@ -514,17 +513,17 @@ impl Store {
         let normalized_id = self.normalize_id(id);
         let mut blockers = HashSet::new();
 
-        let Some(ishoo) = self.ishoos.get(&normalized_id) else {
+        let Some(ish) = self.ishes.get(&normalized_id) else {
             return Vec::new();
         };
 
-        for blocker_id in &ishoo.blocked_by {
+        for blocker_id in &ish.blocked_by {
             if self.has_active_status(blocker_id) {
                 blockers.insert(blocker_id.clone());
             }
         }
 
-        for candidate in self.ishoos.values() {
+        for candidate in self.ishes.values() {
             if candidate
                 .blocking
                 .iter()
@@ -598,14 +597,14 @@ impl Store {
         let mut result = LinkCheckResult::default();
         let mut seen_cycles = HashSet::new();
 
-        for ishoo in self.ishoos.values() {
-            for link in collect_links(ishoo) {
+        for ish in self.ishes.values() {
+            for link in collect_links(ish) {
                 if link.source_id == link.target_id {
                     result.self_links.push(link.clone());
                     continue;
                 }
 
-                if !self.ishoos.contains_key(&link.target_id) {
+                if !self.ishes.contains_key(&link.target_id) {
                     result.broken_links.push(link.clone());
                     continue;
                 }
@@ -637,54 +636,52 @@ impl Store {
     }
 
     pub fn fix_broken_links(&mut self) -> Result<usize, StoreError> {
-        let existing_ids = self.ishoos.keys().cloned().collect::<HashSet<_>>();
+        let existing_ids = self.ishes.keys().cloned().collect::<HashSet<_>>();
         let mut dirty_ids = Vec::new();
         let mut fixed_count = 0;
 
-        for (id, ishoo) in &mut self.ishoos {
+        for (id, ish) in &mut self.ishes {
             let mut dirty = false;
 
-            if let Some(parent) = ishoo.parent.as_deref()
+            if let Some(parent) = ish.parent.as_deref()
                 && (parent == id.as_str() || !existing_ids.contains(parent))
             {
-                ishoo.parent = None;
+                ish.parent = None;
                 dirty = true;
                 fixed_count += 1;
             }
 
-            let blocking_before = ishoo.blocking.len();
-            ishoo
-                .blocking
+            let blocking_before = ish.blocking.len();
+            ish.blocking
                 .retain(|target| target != id && existing_ids.contains(target));
-            let removed_blocking = blocking_before - ishoo.blocking.len();
+            let removed_blocking = blocking_before - ish.blocking.len();
             if removed_blocking > 0 {
                 dirty = true;
                 fixed_count += removed_blocking;
             }
 
-            let blocked_by_before = ishoo.blocked_by.len();
-            ishoo
-                .blocked_by
+            let blocked_by_before = ish.blocked_by.len();
+            ish.blocked_by
                 .retain(|target| target != id && existing_ids.contains(target));
-            let removed_blocked_by = blocked_by_before - ishoo.blocked_by.len();
+            let removed_blocked_by = blocked_by_before - ish.blocked_by.len();
             if removed_blocked_by > 0 {
                 dirty = true;
                 fixed_count += removed_blocked_by;
             }
 
             if dirty {
-                ishoo.updated_at = Utc::now();
+                ish.updated_at = Utc::now();
                 dirty_ids.push(id.clone());
             }
         }
 
         for dirty_id in dirty_ids {
-            let ishoo = self
-                .ishoos
+            let ish = self
+                .ishes
                 .get(&dirty_id)
                 .ok_or_else(|| StoreError::NotFound(dirty_id.clone()))?
                 .clone();
-            self.save_to_disk(&ishoo)?;
+            self.save_to_disk(&ish)?;
         }
 
         Ok(fixed_count)
@@ -706,15 +703,15 @@ impl Store {
             }
 
             if file_type.is_file() && path.extension() == Some(OsStr::new("md")) {
-                let ishoo = self.load_ishoo(&path)?;
-                self.ishoos.insert(ishoo.id.clone(), ishoo);
+                let ish = self.load_ish(&path)?;
+                self.ishes.insert(ish.id.clone(), ish);
             }
         }
 
         Ok(())
     }
 
-    fn load_ishoo(&self, path: &Path) -> Result<Ishoo, StoreError> {
+    fn load_ish(&self, path: &Path) -> Result<Ish, StoreError> {
         let content = fs::read_to_string(path).map_err(StoreError::Io)?;
         let metadata = fs::metadata(path).map_err(StoreError::Io)?;
         let modified_at = metadata.modified().map_err(StoreError::Io)?;
@@ -734,17 +731,17 @@ impl Store {
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| StoreError::InvalidPath(path.to_path_buf()))?;
-        let (id, slug) = crate::model::ishoo::parse_filename(filename);
+        let (id, slug) = crate::model::ish::parse_filename(filename);
         let created_at = fm.created_at.unwrap_or(modified_at);
         let updated_at = fm.updated_at.unwrap_or(created_at);
 
-        Ok(Ishoo {
+        Ok(Ish {
             id,
             slug,
             path: relative_path,
             title: fm.title,
             status: default_string(fm.status, &self.config.ish.default_status),
-            ishoo_type: default_string(fm.ishoo_type, &self.config.ish.default_type),
+            ish_type: default_string(fm.ish_type, &self.config.ish.default_type),
             priority: Some(default_optional_string(fm.priority, "normal")),
             tags: fm.tags,
             created_at,
@@ -757,12 +754,12 @@ impl Store {
         })
     }
 
-    fn ishoo_absolute_path(&self, id: &str) -> Result<PathBuf, StoreError> {
-        let ishoo = self
-            .ishoos
+    fn ish_absolute_path(&self, id: &str) -> Result<PathBuf, StoreError> {
+        let ish = self
+            .ishes
             .get(id)
             .ok_or_else(|| StoreError::NotFound(id.to_string()))?;
-        Ok(self.root.join(&ishoo.path))
+        Ok(self.root.join(&ish.path))
     }
 
     fn relative_path(&self, path: &Path) -> Result<String, StoreError> {
@@ -789,7 +786,7 @@ impl Store {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| StoreError::InvalidPath(path.clone()))?;
-            let (candidate_id, _) = crate::model::ishoo::parse_filename(file_name);
+            let (candidate_id, _) = crate::model::ish::parse_filename(file_name);
 
             if candidate_id == id {
                 return Ok(path);
@@ -804,7 +801,7 @@ impl Store {
 
         loop {
             let id = new_id(prefix, self.config.ish.id_length);
-            if !self.ishoos.contains_key(&id) {
+            if !self.ishes.contains_key(&id) {
                 return id;
             }
         }
@@ -818,11 +815,11 @@ impl Store {
         }
     }
 
-    fn validate_type(&self, ishoo_type: &str) -> Result<(), StoreError> {
-        if self.config.is_valid_type(ishoo_type) {
+    fn validate_type(&self, ish_type: &str) -> Result<(), StoreError> {
+        if self.config.is_valid_type(ish_type) {
             Ok(())
         } else {
-            Err(StoreError::InvalidType(ishoo_type.to_string()))
+            Err(StoreError::InvalidType(ish_type.to_string()))
         }
     }
 
@@ -834,8 +831,8 @@ impl Store {
         }
     }
 
-    fn valid_parent_types(ishoo_type: &str) -> &'static [&'static str] {
-        match ishoo_type {
+    fn valid_parent_types(ish_type: &str) -> &'static [&'static str] {
+        match ish_type {
             "milestone" => &[],
             "epic" => &["milestone"],
             "feature" => &["milestone", "epic"],
@@ -844,25 +841,25 @@ impl Store {
         }
     }
 
-    fn validate_parent(&self, ishoo: &Ishoo, parent_id: &str) -> Result<(), StoreError> {
-        let allowed_parent_types = Self::valid_parent_types(&ishoo.ishoo_type);
+    fn validate_parent(&self, ish: &Ish, parent_id: &str) -> Result<(), StoreError> {
+        let allowed_parent_types = Self::valid_parent_types(&ish.ish_type);
         if allowed_parent_types.is_empty() {
-            return Err(StoreError::ParentNotAllowed(ishoo.ishoo_type.clone()));
+            return Err(StoreError::ParentNotAllowed(ish.ish_type.clone()));
         }
 
         let normalized_parent_id = self.normalize_id(parent_id);
         let parent = self
-            .ishoos
+            .ishes
             .get(&normalized_parent_id)
             .ok_or_else(|| StoreError::NotFound(normalized_parent_id.clone()))?;
 
-        if allowed_parent_types.contains(&parent.ishoo_type.as_str()) {
+        if allowed_parent_types.contains(&parent.ish_type.as_str()) {
             Ok(())
         } else {
             Err(StoreError::InvalidParentType {
-                child_type: ishoo.ishoo_type.clone(),
+                child_type: ish.ish_type.clone(),
                 parent_id: normalized_parent_id,
-                parent_type: parent.ishoo_type.clone(),
+                parent_type: parent.ish_type.clone(),
                 allowed_parent_types: allowed_parent_types.to_vec(),
             })
         }
@@ -904,25 +901,25 @@ impl Store {
     }
 
     fn link_targets(&self, id: &str, link_type: LinkType) -> Vec<String> {
-        let Some(ishoo) = self.ishoos.get(id) else {
+        let Some(ish) = self.ishes.get(id) else {
             return Vec::new();
         };
 
         match link_type {
-            LinkType::Parent => ishoo.parent.iter().cloned().collect(),
-            LinkType::Blocking => ishoo.blocking.clone(),
-            LinkType::BlockedBy => ishoo.blocked_by.clone(),
+            LinkType::Parent => ish.parent.iter().cloned().collect(),
+            LinkType::Blocking => ish.blocking.clone(),
+            LinkType::BlockedBy => ish.blocked_by.clone(),
         }
     }
 
     fn walk_parent_chain<F>(&self, id: &str, mut visitor: F)
     where
-        F: FnMut(&Ishoo) -> bool,
+        F: FnMut(&Ish) -> bool,
     {
         let mut next_parent = self
-            .ishoos
+            .ishes
             .get(&self.normalize_id(id))
-            .and_then(|ishoo| ishoo.parent.clone());
+            .and_then(|ish| ish.parent.clone());
         let mut visited = HashSet::new();
 
         while let Some(parent_id) = next_parent {
@@ -930,7 +927,7 @@ impl Store {
                 break;
             }
 
-            let Some(parent) = self.ishoos.get(&parent_id) else {
+            let Some(parent) = self.ishes.get(&parent_id) else {
                 break;
             };
 
@@ -943,9 +940,9 @@ impl Store {
     }
 
     fn has_active_status(&self, id: &str) -> bool {
-        self.ishoos
+        self.ishes
             .get(id)
-            .is_some_and(|ishoo| !self.config.is_archive_status(&ishoo.status))
+            .is_some_and(|ish| !self.config.is_archive_status(&ish.status))
     }
 }
 
@@ -953,16 +950,16 @@ impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             StoreError::Io(error) => write!(f, "I/O error: {error}"),
-            StoreError::InvalidPath(path) => write!(f, "invalid ishoo path: {}", path.display()),
+            StoreError::InvalidPath(path) => write!(f, "invalid ish path: {}", path.display()),
             StoreError::InvalidFrontmatter(path) => {
                 write!(f, "invalid frontmatter in `{}`", path.display())
             }
             StoreError::InvalidStatus(status) => write!(f, "invalid status: {status}"),
-            StoreError::InvalidType(ishoo_type) => write!(f, "invalid type: {ishoo_type}"),
+            StoreError::InvalidType(ish_type) => write!(f, "invalid type: {ish_type}"),
             StoreError::InvalidPriority(priority) => write!(f, "invalid priority: {priority}"),
             StoreError::InvalidTag(tag) => write!(f, "invalid tag: {tag}"),
-            StoreError::ParentNotAllowed(ishoo_type) => {
-                write!(f, "type `{ishoo_type}` cannot have a parent")
+            StoreError::ParentNotAllowed(ish_type) => {
+                write!(f, "type `{ish_type}` cannot have a parent")
             }
             StoreError::InvalidParentType {
                 child_type,
@@ -974,7 +971,7 @@ impl fmt::Display for StoreError {
                 "invalid parent `{parent_id}` of type `{parent_type}` for child type `{child_type}`; allowed parent types: {}",
                 allowed_parent_types.join(", ")
             ),
-            StoreError::NotFound(id) => write!(f, "ishoo not found: {id}"),
+            StoreError::NotFound(id) => write!(f, "ish not found: {id}"),
             StoreError::ETagMismatch { expected, actual } => {
                 write!(f, "etag mismatch: expected {expected}, actual {actual}")
             }
@@ -1044,28 +1041,28 @@ fn retain_without(values: &mut Vec<String>, removed_id: &str) -> bool {
     values.len() != original_len
 }
 
-fn collect_links(ishoo: &Ishoo) -> Vec<LinkRef> {
+fn collect_links(ish: &Ish) -> Vec<LinkRef> {
     let mut links = Vec::new();
 
-    if let Some(parent) = &ishoo.parent {
+    if let Some(parent) = &ish.parent {
         links.push(LinkRef {
-            source_id: ishoo.id.clone(),
+            source_id: ish.id.clone(),
             link_type: LinkType::Parent,
             target_id: parent.clone(),
         });
     }
 
-    for target_id in &ishoo.blocking {
+    for target_id in &ish.blocking {
         links.push(LinkRef {
-            source_id: ishoo.id.clone(),
+            source_id: ish.id.clone(),
             link_type: LinkType::Blocking,
             target_id: target_id.clone(),
         });
     }
 
-    for target_id in &ishoo.blocked_by {
+    for target_id in &ish.blocked_by {
         links.push(LinkRef {
-            source_id: ishoo.id.clone(),
+            source_id: ish.id.clone(),
             link_type: LinkType::BlockedBy,
             target_id: target_id.clone(),
         });
@@ -1172,8 +1169,8 @@ fn split_frontmatter(content: &str) -> Option<(String, String, String)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateIshoo, GITIGNORE_CONTENTS, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store,
-        StoreError, UpdateIshoo,
+        CreateIsh, GITIGNORE_CONTENTS, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store,
+        StoreError, UpdateIsh,
     };
     use crate::config::Config;
     use chrono::{TimeZone, Utc};
@@ -1231,7 +1228,7 @@ mod tests {
 
         fs::create_dir_all(&archive_dir).expect("archive dir should exist");
         fs::create_dir_all(&hidden_dir).expect("hidden dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-abcd--top-level.md"),
             "ish-abcd",
             "Top Level",
@@ -1240,7 +1237,7 @@ mod tests {
             Some("normal"),
             "Top level body.",
         );
-        write_ishoo(
+        write_ish(
             &archive_dir.join("ish-efgh--archived.md"),
             "ish-efgh",
             "Archived",
@@ -1249,7 +1246,7 @@ mod tests {
             Some("low"),
             "Archived body.",
         );
-        write_ishoo(
+        write_ish(
             &hidden_dir.join("ish-skip--hidden.md"),
             "ish-skip",
             "Hidden",
@@ -1265,7 +1262,7 @@ mod tests {
         let mut ids = store
             .all()
             .into_iter()
-            .map(|ishoo| ishoo.id.as_str())
+            .map(|ish| ish.id.as_str())
             .collect::<Vec<_>>();
         ids.sort_unstable();
 
@@ -1273,7 +1270,7 @@ mod tests {
         assert_eq!(
             store
                 .get("ish-efgh")
-                .expect("archived ishoo should load")
+                .expect("archived ish should load")
                 .path,
             "archive/ish-efgh--archived.md"
         );
@@ -1289,7 +1286,7 @@ mod tests {
             &path,
             "---\n# ignored-frontmatter-id\ntitle: Needs defaults\nstatus: \ntype: \npriority: \ntags: []\nupdated_at: 2026-01-02T03:04:05Z\n---\n\nBody text.\n",
         )
-        .expect("ishoo file should be written");
+        .expect("ish file should be written");
 
         let mut config = Config::default_with_prefix("ish");
         config.ish.default_status = "todo".to_string();
@@ -1298,21 +1295,21 @@ mod tests {
         let mut store = Store::new(&root, config).expect("store should initialize");
         store.load().expect("store should load files");
 
-        let ishoo = store.get("abcd").expect("normalized id should resolve");
+        let ish = store.get("abcd").expect("normalized id should resolve");
 
-        assert_eq!(ishoo.id, "ish-abcd");
-        assert_eq!(ishoo.slug, "needs-defaults");
-        assert_eq!(ishoo.path, "ish-abcd--needs-defaults.md");
-        assert_eq!(ishoo.status, "todo");
-        assert_eq!(ishoo.ishoo_type, "task");
-        assert_eq!(ishoo.priority.as_deref(), Some("normal"));
-        assert!(ishoo.tags.is_empty());
-        assert!(ishoo.blocking.is_empty());
+        assert_eq!(ish.id, "ish-abcd");
+        assert_eq!(ish.slug, "needs-defaults");
+        assert_eq!(ish.path, "ish-abcd--needs-defaults.md");
+        assert_eq!(ish.status, "todo");
+        assert_eq!(ish.ish_type, "task");
+        assert_eq!(ish.priority.as_deref(), Some("normal"));
+        assert!(ish.tags.is_empty());
+        assert!(ish.blocking.is_empty());
         assert_eq!(
-            ishoo.updated_at,
+            ish.updated_at,
             Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap()
         );
-        assert!(ishoo.created_at <= Utc::now());
+        assert!(ish.created_at <= Utc::now());
     }
 
     #[test]
@@ -1334,7 +1331,7 @@ mod tests {
         let archived_path = root.join("archive/ish-abcd--active.md");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &active_path,
             "ish-abcd",
             "Active",
@@ -1351,9 +1348,9 @@ mod tests {
 
         assert!(!active_path.exists());
         assert!(archived_path.exists());
-        assert!(store.is_archived("ish-abcd").expect("ishoo should exist"));
+        assert!(store.is_archived("ish-abcd").expect("ish should exist"));
         assert_eq!(
-            store.get("ish-abcd").expect("ishoo should exist").path,
+            store.get("ish-abcd").expect("ish should exist").path,
             "archive/ish-abcd--active.md"
         );
 
@@ -1363,9 +1360,9 @@ mod tests {
 
         assert!(active_path.exists());
         assert!(!archived_path.exists());
-        assert!(!store.is_archived("abcd").expect("ishoo should exist"));
+        assert!(!store.is_archived("abcd").expect("ish should exist"));
         assert_eq!(
-            store.get("ish-abcd").expect("ishoo should exist").path,
+            store.get("ish-abcd").expect("ish should exist").path,
             "ish-abcd--active.md"
         );
     }
@@ -1379,7 +1376,7 @@ mod tests {
         let active_path = root.join("ish-abcd--active.md");
 
         fs::create_dir_all(&archive_dir).expect("archive dir should exist");
-        write_ishoo(
+        write_ish(
             &archived_path,
             "ish-abcd",
             "Active",
@@ -1398,7 +1395,7 @@ mod tests {
         assert!(active_path.exists());
         assert!(!archived_path.exists());
         assert_eq!(
-            store.get("ish-abcd").expect("ishoo should be loaded").path,
+            store.get("ish-abcd").expect("ish should be loaded").path,
             "ish-abcd--active.md"
         );
     }
@@ -1409,7 +1406,7 @@ mod tests {
         let root = temp.path().join(".ish");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-todo--active.md"),
             "ish-todo",
             "Todo",
@@ -1418,7 +1415,7 @@ mod tests {
             Some("normal"),
             "Todo body.",
         );
-        write_ishoo(
+        write_ish(
             &root.join("ish-done--completed.md"),
             "ish-done",
             "Done",
@@ -1427,7 +1424,7 @@ mod tests {
             Some("normal"),
             "Done body.",
         );
-        write_ishoo(
+        write_ish(
             &root.join("ish-nope--scrapped.md"),
             "ish-nope",
             "Nope",
@@ -1449,24 +1446,24 @@ mod tests {
         assert!(root.join("archive/ish-done--completed.md").exists());
         assert!(root.join("archive/ish-nope--scrapped.md").exists());
         assert_eq!(
-            store.get("ish-done").expect("done ishoo should exist").path,
+            store.get("ish-done").expect("done ish should exist").path,
             "archive/ish-done--completed.md"
         );
         assert_eq!(
             store
                 .get("ish-nope")
-                .expect("scrapped ishoo should exist")
+                .expect("scrapped ish should exist")
                 .path,
             "archive/ish-nope--scrapped.md"
         );
     }
 
     #[test]
-    fn create_writes_new_ishoo_to_disk_and_store() {
+    fn create_writes_new_ish_to_disk_and_store() {
         let temp = TestDir::new();
         let root = temp.path().join(".ish");
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-parent--parent.md"),
             "ish-parent",
             "Parent",
@@ -1479,10 +1476,10 @@ mod tests {
         store.load().expect("store should load files");
 
         let created = store
-            .create(CreateIshoo {
+            .create(CreateIsh {
                 title: "Create store record".to_string(),
                 status: None,
-                ishoo_type: Some("bug".to_string()),
+                ish_type: Some("bug".to_string()),
                 priority: Some("high".to_string()),
                 body: "Created body.".to_string(),
                 tags: vec!["Backend".to_string(), "backend".to_string()],
@@ -1499,7 +1496,7 @@ mod tests {
         assert!(created.id.starts_with("ish-"));
         assert_eq!(created.slug, "create-store-record");
         assert_eq!(created.status, "todo");
-        assert_eq!(created.ishoo_type, "bug");
+        assert_eq!(created.ish_type, "bug");
         assert_eq!(created.priority.as_deref(), Some("high"));
         assert_eq!(created.tags, vec!["backend"]);
         assert_eq!(created.parent.as_deref(), Some("ish-parent"));
@@ -1508,7 +1505,7 @@ mod tests {
         assert!(file_contents.contains("title: Create store record"));
         assert!(file_contents.contains("Created body."));
         assert_eq!(
-            store.get(&created.id).expect("created ishoo should exist"),
+            store.get(&created.id).expect("created ish should exist"),
             &created
         );
     }
@@ -1520,7 +1517,7 @@ mod tests {
         let original_path = root.join("ish-abcd--old-title.md");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-parent--parent.md"),
             "ish-parent",
             "Parent",
@@ -1529,7 +1526,7 @@ mod tests {
             Some("normal"),
             "Parent body.",
         );
-        write_ishoo(
+        write_ish(
             &original_path,
             "ish-abcd",
             "Old title",
@@ -1541,14 +1538,14 @@ mod tests {
 
         let mut store = Store::new(&root, Config::default()).expect("store should initialize");
         store.load().expect("store should load files");
-        let etag = store.get("ish-abcd").expect("ishoo should exist").etag();
+        let etag = store.get("ish-abcd").expect("ish should exist").etag();
 
         let updated = store
             .update(
                 "abcd",
-                UpdateIshoo {
+                UpdateIsh {
                     status: Some("in-progress".to_string()),
-                    ishoo_type: Some("feature".to_string()),
+                    ish_type: Some("feature".to_string()),
                     priority: Some(Some("critical".to_string())),
                     title: Some("New title".to_string()),
                     body: None,
@@ -1572,7 +1569,7 @@ mod tests {
         assert!(!original_path.exists());
         assert!(renamed_path.exists());
         assert_eq!(updated.status, "in-progress");
-        assert_eq!(updated.ishoo_type, "feature");
+        assert_eq!(updated.ish_type, "feature");
         assert_eq!(updated.priority.as_deref(), Some("critical"));
         assert_eq!(updated.slug, "new-title");
         assert_eq!(updated.path, "ish-abcd--new-title.md");
@@ -1590,7 +1587,7 @@ mod tests {
         let temp = TestDir::new();
         let root = temp.path().join(".ish");
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-abcd--etag.md"),
             "ish-abcd",
             "ETag",
@@ -1606,10 +1603,10 @@ mod tests {
         let error = store
             .update(
                 "ish-abcd",
-                UpdateIshoo {
+                UpdateIsh {
                     title: Some("Other".to_string()),
                     if_match: Some("deadbeefdeadbeef".to_string()),
-                    ..UpdateIshoo::default()
+                    ..UpdateIsh::default()
                 },
             )
             .expect_err("update should fail on mismatched etag");
@@ -1638,7 +1635,7 @@ mod tests {
         let root = temp.path().join(".ish");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-task-parent--task-parent.md"),
             "ish-task-parent",
             "Task parent",
@@ -1652,11 +1649,11 @@ mod tests {
         store.load().expect("store should load files");
 
         let error = store
-            .create(CreateIshoo {
+            .create(CreateIsh {
                 title: "Feature child".to_string(),
-                ishoo_type: Some("feature".to_string()),
+                ish_type: Some("feature".to_string()),
                 parent: Some("task-parent".to_string()),
-                ..CreateIshoo::default()
+                ..CreateIsh::default()
             })
             .expect_err("create should reject invalid parent hierarchy");
 
@@ -1680,7 +1677,7 @@ mod tests {
         let root = temp.path().join(".ish");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-parent--parent.md"),
             "ish-parent",
             "Parent",
@@ -1694,16 +1691,16 @@ mod tests {
         store.load().expect("store should load files");
 
         let error = store
-            .create(CreateIshoo {
+            .create(CreateIsh {
                 title: "Milestone child".to_string(),
-                ishoo_type: Some("milestone".to_string()),
+                ish_type: Some("milestone".to_string()),
                 parent: Some("parent".to_string()),
-                ..CreateIshoo::default()
+                ..CreateIsh::default()
             })
             .expect_err("milestone should reject parent assignments");
 
         assert!(
-            matches!(error, StoreError::ParentNotAllowed(ref ishoo_type) if ishoo_type == "milestone")
+            matches!(error, StoreError::ParentNotAllowed(ref ish_type) if ish_type == "milestone")
         );
     }
 
@@ -1713,7 +1710,7 @@ mod tests {
         let root = temp.path().join(".ish");
 
         fs::create_dir_all(&root).expect("root dir should exist");
-        write_ishoo(
+        write_ish(
             &root.join("ish-parent--parent.md"),
             "ish-parent",
             "Parent",
@@ -1722,7 +1719,7 @@ mod tests {
             Some("normal"),
             "Parent body.",
         );
-        write_ishoo(
+        write_ish(
             &root.join("ish-child--child.md"),
             "ish-child",
             "Child",
@@ -1738,10 +1735,10 @@ mod tests {
         let error = store
             .update(
                 "child",
-                UpdateIshoo {
-                    ishoo_type: Some("epic".to_string()),
+                UpdateIsh {
+                    ish_type: Some("epic".to_string()),
                     parent: Some(Some("parent".to_string())),
-                    ..UpdateIshoo::default()
+                    ..UpdateIsh::default()
                 },
             )
             .expect_err("update should reject invalid parent hierarchy");
@@ -1780,15 +1777,15 @@ mod tests {
         store.load().expect("store should load files");
 
         let removed = store.delete("target").expect("delete should succeed");
-        let ref_ishoo = store.get("ish-ref").expect("ref should remain");
+        let ref_ish = store.get("ish-ref").expect("ref should remain");
         let ref_contents =
             fs::read_to_string(root.join("ish-ref--ref.md")).expect("ref file should still exist");
 
         assert_eq!(removed.id, "ish-target");
         assert!(!root.join("ish-target--target.md").exists());
-        assert!(ref_ishoo.parent.is_none());
-        assert!(ref_ishoo.blocking.is_empty());
-        assert!(ref_ishoo.blocked_by.is_empty());
+        assert!(ref_ish.parent.is_none());
+        assert!(ref_ish.blocking.is_empty());
+        assert!(ref_ish.blocked_by.is_empty());
         assert!(!ref_contents.contains("parent: ish-target"));
         assert!(!ref_contents.contains("- ish-target"));
     }
@@ -1956,14 +1953,14 @@ mod tests {
         let fixed = store
             .fix_broken_links()
             .expect("fixing broken links should succeed");
-        let ishoo = store.get("ish-bad").expect("bad ishoo should exist");
+        let ish = store.get("ish-bad").expect("bad ish should exist");
         let contents =
             fs::read_to_string(root.join("ish-bad--bad.md")).expect("bad file should still exist");
 
         assert_eq!(fixed, 5);
-        assert!(ishoo.parent.is_none());
-        assert_eq!(ishoo.blocking, vec!["ish-valid"]);
-        assert!(ishoo.blocked_by.is_empty());
+        assert!(ish.parent.is_none());
+        assert_eq!(ish.blocking, vec!["ish-valid"]);
+        assert!(ish.blocked_by.is_empty());
         assert!(!contents.contains("parent: ish-bad"));
         assert!(contents.contains("- ish-valid"));
         assert!(!contents.contains("- ish-missing"));
@@ -2102,12 +2099,12 @@ mod tests {
         assert_eq!(store.implicit_status("b"), None);
     }
 
-    fn write_ishoo(
+    fn write_ish(
         path: &Path,
         id: &str,
         title: &str,
         status: &str,
-        ishoo_type: &str,
+        ish_type: &str,
         priority: Option<&str>,
         body: &str,
     ) {
@@ -2115,8 +2112,8 @@ mod tests {
             .map(|priority| format!("priority: {priority}\n"))
             .unwrap_or_default();
         let contents = format!(
-            "---\n# {id}\ntitle: {title}\nstatus: {status}\ntype: {ishoo_type}\n{priority_line}created_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\n{body}\n"
+            "---\n# {id}\ntitle: {title}\nstatus: {status}\ntype: {ish_type}\n{priority_line}created_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\n{body}\n"
         );
-        fs::write(path, contents).expect("ishoo file should be written");
+        fs::write(path, contents).expect("ish file should be written");
     }
 }
