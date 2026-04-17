@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
+use fnv::FnvHasher;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::hash::Hasher;
 
 /// The core issue type. An Ishoo is stored as a markdown file with YAML frontmatter.
 #[derive(Debug, Clone, PartialEq)]
@@ -167,6 +169,10 @@ impl Ishoo {
 
     /// Render the `Ishoo` back to the `.md` file format.
     pub fn render(&self) -> String {
+        self.try_render().expect("failed to serialize frontmatter")
+    }
+
+    fn try_render(&self) -> Result<String, serde_yaml::Error> {
         let fm = Frontmatter {
             title: self.title.clone(),
             status: self.status.clone(),
@@ -181,7 +187,7 @@ impl Ishoo {
             blocked_by: self.blocked_by.clone(),
         };
 
-        let yaml = serde_yaml::to_string(&fm).expect("failed to serialize frontmatter");
+        let yaml = serde_yaml::to_string(&fm)?;
 
         let mut out = String::new();
         out.push_str("---\n");
@@ -197,7 +203,18 @@ impl Ishoo {
             }
         }
 
-        out
+        Ok(out)
+    }
+
+    pub fn etag(&self) -> String {
+        match self.try_render() {
+            Ok(rendered) => {
+                let mut hasher = FnvHasher::default();
+                hasher.write(rendered.as_bytes());
+                format!("{:016x}", hasher.finish())
+            }
+            Err(_) => "0000000000000000".to_string(),
+        }
     }
 
     /// Convert to JSON-serializable representation.
@@ -500,6 +517,30 @@ updated_at: 2026-01-01T00:00:00Z
         let json_str = serde_json::to_string(&json).expect("JSON serialize failed");
         assert!(json_str.contains("\"type\":\"bug\""));
         assert!(json_str.contains("\"etag\":\"abc123\""));
+    }
+
+    #[test]
+    fn test_etag_is_deterministic_for_same_content() {
+        let first = sample_ishoo();
+        let second = sample_ishoo();
+
+        assert_eq!(first.etag(), second.etag());
+    }
+
+    #[test]
+    fn test_etag_changes_when_content_changes() {
+        let first = sample_ishoo();
+        let mut second = sample_ishoo();
+        second.title = "Fix the other widget".to_string();
+
+        assert_ne!(first.etag(), second.etag());
+    }
+
+    #[test]
+    fn test_etag_matches_expected_hash() {
+        let ishoo = sample_ishoo();
+
+        assert_eq!(ishoo.etag(), "bf9cff0b18dcadde");
     }
 
     #[test]
