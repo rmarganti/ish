@@ -59,6 +59,7 @@ pub struct CreateIshoo {
     pub parent: Option<String>,
     pub blocking: Vec<String>,
     pub blocked_by: Vec<String>,
+    pub id_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -181,7 +182,7 @@ impl Store {
             self.validate_priority(priority_name)?;
         }
 
-        let id = self.generate_unique_id();
+        let id = self.generate_unique_id(input.id_prefix.as_deref());
         let slug = slugify(&input.title);
         let path = build_filename(&id, &slug);
         let now = Utc::now();
@@ -798,9 +799,11 @@ impl Store {
         Err(StoreError::NotFound(id.to_string()))
     }
 
-    fn generate_unique_id(&self) -> String {
+    fn generate_unique_id(&self, prefix_override: Option<&str>) -> String {
+        let prefix = prefix_override.unwrap_or(&self.config.ish.prefix);
+
         loop {
-            let id = new_id(&self.config.ish.prefix, self.config.ish.id_length);
+            let id = new_id(prefix, self.config.ish.id_length);
             if !self.ishoos.contains_key(&id) {
                 return id;
             }
@@ -1486,6 +1489,7 @@ mod tests {
                 parent: Some("parent".to_string()),
                 blocking: vec!["dep1".to_string(), "dep1".to_string()],
                 blocked_by: vec!["dep2".to_string()],
+                id_prefix: None,
             })
             .expect("create should succeed");
 

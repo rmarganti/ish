@@ -9,15 +9,18 @@ use clap::Parser;
 use serde_json::Value;
 use serde_json::json;
 use std::fs;
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::prime_output;
 use crate::config::{CONFIG_FILE_NAME, Config, find_config};
-use crate::core::store::{LinkCheckResult, LinkCycle, LinkRef, LinkType, Store};
+use crate::core::store::{
+    CreateIshoo, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError,
+};
 use crate::output::{
-    ErrorCode, danger, is_supported_color_name, output_error, output_message, output_success,
-    success, warning,
+    ErrorCode, danger, is_supported_color_name, muted, output_error, output_message,
+    output_success, render_id, success, warning,
 };
 use crate::roadmap::{RoadmapOptions, roadmap_output};
 
@@ -40,6 +43,8 @@ struct Cli {
 enum Commands {
     /// Initialize a new ish project in the current directory.
     Init,
+    /// Create a new ishoo markdown file.
+    Create(CreateArgs),
     /// Move completed and scrapped ishoos to the archive directory.
     Archive,
     /// Validate configuration and link integrity.
@@ -76,6 +81,42 @@ struct CheckArgs {
     /// Fix broken links and self-references.
     #[arg(long)]
     fix: bool,
+}
+
+#[derive(clap::Args)]
+struct CreateArgs {
+    /// Title for the new ishoo.
+    title: Option<String>,
+    /// Override the initial status.
+    #[arg(short = 's', long = "status")]
+    status: Option<String>,
+    /// Override the ishoo type.
+    #[arg(short = 't', long = "type")]
+    ishoo_type: Option<String>,
+    /// Override the priority.
+    #[arg(short = 'p', long = "priority")]
+    priority: Option<String>,
+    /// Inline body text; use `-` to read from stdin.
+    #[arg(short = 'd', long = "body", conflicts_with = "body_file")]
+    body: Option<String>,
+    /// Read body text from a file.
+    #[arg(long = "body-file", conflicts_with = "body")]
+    body_file: Option<String>,
+    /// Add a tag. May be repeated.
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    /// Set the parent ishoo ID.
+    #[arg(long = "parent")]
+    parent: Option<String>,
+    /// Add a blocking relationship. May be repeated.
+    #[arg(long = "blocking")]
+    blocking: Vec<String>,
+    /// Add a blocked-by relationship. May be repeated.
+    #[arg(long = "blocked-by")]
+    blocked_by: Vec<String>,
+    /// Override the ID prefix for the created ishoo.
+    #[arg(long = "prefix")]
+    prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +168,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<RunOutcome, AppError> {
     match cli.command {
         Some(Commands::Init) => init_command(cli.json).map(success_outcome),
+        Some(Commands::Create(args)) => create_command(args, cli.json).map(success_outcome),
         Some(Commands::Archive) => archive_command(cli.json).map(success_outcome),
         Some(Commands::Check(args)) => check_command(args, cli.json),
         Some(Commands::Prime) => prime_command(cli.json).map(success_outcome),
@@ -158,6 +200,97 @@ fn success_outcome(output: Option<String>) -> RunOutcome {
     RunOutcome {
         output,
         exit_code: ExitCode::SUCCESS,
+    }
+}
+
+fn create_command(args: CreateArgs, json: bool) -> Result<Option<String>, AppError> {
+    let current_dir = std::env::current_dir().map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to determine current directory: {error}"),
+        )
+    })?;
+    let Some(config_path) = find_config(&current_dir) else {
+        return Err(AppError::new(
+            ErrorCode::NotFound,
+            "no `.ish.yml` found in the current directory or its parents",
+        ));
+    };
+
+    let config = Config::load(&config_path).map_err(|error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to load `{}`: {error}", config_path.display()),
+        )
+    })?;
+
+    let store_root = config_path
+        .parent()
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::FileError,
+                format!("invalid config path: {}", config_path.display()),
+            )
+        })?
+        .join(&config.ish.path);
+    let mut store = Store::new(&store_root, config).map_err(store_open_error(&store_root))?;
+    store.load().map_err(store_open_error(&store_root))?;
+
+    let ishoo = store
+        .create(CreateIshoo {
+            title: args.title.unwrap_or_else(|| "Untitled".to_string()),
+            status: args.status,
+            ishoo_type: args.ishoo_type,
+            priority: args.priority,
+            body: resolve_create_body(args.body, args.body_file)?,
+            tags: args.tags,
+            parent: args.parent,
+            blocking: args.blocking,
+            blocked_by: args.blocked_by,
+            id_prefix: args.prefix,
+        })
+        .map_err(store_app_error)?;
+
+    if json {
+        return Ok(Some(
+            output_success(ishoo.to_json(&ishoo.etag())).map_err(json_output_error)?,
+        ));
+    }
+
+    Ok(Some(success(&format!(
+        "Created {} {}",
+        render_id(&ishoo.id),
+        muted(&ishoo.path)
+    ))))
+}
+
+fn resolve_create_body(
+    body: Option<String>,
+    body_file: Option<String>,
+) -> Result<String, AppError> {
+    match (body, body_file) {
+        (Some(body), None) if body == "-" => {
+            let mut stdin = String::new();
+            io::stdin().read_to_string(&mut stdin).map_err(|error| {
+                AppError::new(
+                    ErrorCode::FileError,
+                    format!("failed to read body from stdin: {error}"),
+                )
+            })?;
+            Ok(stdin)
+        }
+        (Some(body), None) => Ok(body),
+        (None, Some(path)) => fs::read_to_string(&path).map_err(|error| {
+            AppError::new(
+                ErrorCode::FileError,
+                format!("failed to read body file `{path}`: {error}"),
+            )
+        }),
+        (None, None) => Ok(String::new()),
+        (Some(_), Some(_)) => Err(AppError::new(
+            ErrorCode::Validation,
+            "`--body` and `--body-file` cannot be used together",
+        )),
     }
 }
 
@@ -669,6 +802,35 @@ fn classify_app_error(message: String) -> AppError {
     AppError::new(code, message)
 }
 
+fn store_open_error(store_root: &Path) -> impl Fn(StoreError) -> AppError + '_ {
+    move |error| {
+        AppError::new(
+            ErrorCode::FileError,
+            format!("failed to open store `{}`: {error}", store_root.display()),
+        )
+    }
+}
+
+fn store_app_error(error: StoreError) -> AppError {
+    let code = match error {
+        StoreError::InvalidStatus(_)
+        | StoreError::InvalidType(_)
+        | StoreError::InvalidPriority(_)
+        | StoreError::InvalidTag(_)
+        | StoreError::ParentNotAllowed(_)
+        | StoreError::InvalidParentType { .. }
+        | StoreError::Body(_) => ErrorCode::Validation,
+        StoreError::NotFound(_) => ErrorCode::NotFound,
+        StoreError::ETagMismatch { .. } => ErrorCode::Conflict,
+        StoreError::Io(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::InvalidFrontmatter(_)
+        | StoreError::Yaml { .. } => ErrorCode::FileError,
+    };
+
+    AppError::new(code, error.to_string())
+}
+
 fn json_output_error(message: String) -> AppError {
     AppError::new(ErrorCode::FileError, message)
 }
@@ -676,8 +838,9 @@ fn json_output_error(message: String) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CheckArgs, Cli, Commands, RoadmapArgs, STORE_GITIGNORE_CONTENT, archive_command,
-        check_command, init_command, prime_command, roadmap_command, run, version_output,
+        CheckArgs, Cli, Commands, CreateArgs, RoadmapArgs, STORE_GITIGNORE_CONTENT,
+        archive_command, check_command, create_command, init_command, prime_command,
+        roadmap_command, run, version_output,
     };
     use crate::config::{CONFIG_FILE_NAME, Config};
     use serde_json::Value;
@@ -770,6 +933,200 @@ mod tests {
 
         assert!(output.contains("# ish Agent Guide"));
         assert!(output.contains("Prime Test"));
+    }
+
+    #[test]
+    fn create_command_uses_defaults_and_writes_file() {
+        let temp = TestDir::new();
+        let mut config = Config::default_with_prefix("demo");
+        config.project.name = "Create Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = create_command(
+            CreateArgs {
+                title: Some("Ship feature".to_string()),
+                status: None,
+                ishoo_type: None,
+                priority: None,
+                body: None,
+                body_file: None,
+                tags: Vec::new(),
+                parent: None,
+                blocking: Vec::new(),
+                blocked_by: Vec::new(),
+                prefix: None,
+            },
+            false,
+        )
+        .expect("create command should succeed")
+        .expect("create command should print output");
+
+        assert!(output.contains("Created"));
+
+        let files = fs::read_dir(temp.path().join(".ish"))
+            .expect("store root should exist")
+            .map(|entry| entry.expect("entry should read").path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+
+        let contents = fs::read_to_string(&files[0]).expect("created file should be readable");
+        assert!(contents.contains("# demo-"));
+        assert!(contents.contains("title: Ship feature"));
+        assert!(contents.contains("status: todo"));
+        assert!(contents.contains("type: task"));
+        assert!(contents.contains("priority: normal"));
+    }
+
+    #[test]
+    fn create_command_supports_body_file_tags_and_relations_in_json_mode() {
+        let temp = TestDir::new();
+        let mut config = Config::default_with_prefix("ish");
+        config.project.name = "Create JSON Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        fs::create_dir_all(&store_root).expect("store root should exist");
+        fs::write(
+            store_root.join("ish-parent--parent.md"),
+            "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nParent body.\n",
+        )
+        .expect("parent file should exist");
+        fs::write(
+            store_root.join("ish-blocker--blocker.md"),
+            "---\n# ish-blocker\ntitle: Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nBlocker body.\n",
+        )
+        .expect("blocker file should exist");
+        fs::write(
+            store_root.join("ish-dependency--dependency.md"),
+            "---\n# ish-dependency\ntitle: Dependency\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nDependency body.\n",
+        )
+        .expect("dependency file should exist");
+        let body_path = temp.path().join("body.md");
+        fs::write(&body_path, "Body from file\n").expect("body file should be written");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = create_command(
+            CreateArgs {
+                title: Some("Wire command".to_string()),
+                status: Some("in-progress".to_string()),
+                ishoo_type: Some("task".to_string()),
+                priority: Some("high".to_string()),
+                body: None,
+                body_file: Some(body_path.display().to_string()),
+                tags: vec!["cli".to_string(), "json".to_string()],
+                parent: Some("parent".to_string()),
+                blocking: vec!["blocker".to_string()],
+                blocked_by: vec!["dependency".to_string()],
+                prefix: Some("feat".to_string()),
+            },
+            true,
+        )
+        .expect("create command should succeed")
+        .expect("create command should print output");
+
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(
+            parsed["data"]["title"],
+            Value::String("Wire command".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["status"],
+            Value::String("in-progress".to_string())
+        );
+        assert_eq!(parsed["data"]["type"], Value::String("task".to_string()));
+        assert_eq!(
+            parsed["data"]["priority"],
+            Value::String("high".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["body"],
+            Value::String("Body from file\n".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["parent"],
+            Value::String("ish-parent".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["blocking"][0],
+            Value::String("ish-blocker".to_string())
+        );
+        assert_eq!(
+            parsed["data"]["blocked_by"][0],
+            Value::String("ish-dependency".to_string())
+        );
+        assert_eq!(parsed["data"]["tags"][0], Value::String("cli".to_string()));
+        assert!(
+            parsed["data"]["id"]
+                .as_str()
+                .expect("id should be present")
+                .starts_with("feat-")
+        );
+    }
+
+    #[test]
+    fn create_command_defaults_title_to_untitled() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        create_command(
+            CreateArgs {
+                title: None,
+                status: None,
+                ishoo_type: None,
+                priority: None,
+                body: None,
+                body_file: None,
+                tags: Vec::new(),
+                parent: None,
+                blocking: Vec::new(),
+                blocked_by: Vec::new(),
+                prefix: None,
+            },
+            false,
+        )
+        .expect("create command should succeed");
+
+        let files = fs::read_dir(temp.path().join(".ish"))
+            .expect("store root should exist")
+            .map(|entry| entry.expect("entry should read").path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        let contents = fs::read_to_string(&files[0]).expect("created file should be readable");
+        assert!(contents.contains("title: Untitled"));
+    }
+
+    #[test]
+    fn create_command_rejects_invalid_status() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let error = create_command(
+            CreateArgs {
+                title: Some("Broken".to_string()),
+                status: Some("invalid".to_string()),
+                ishoo_type: None,
+                priority: None,
+                body: None,
+                body_file: None,
+                tags: Vec::new(),
+                parent: None,
+                blocking: Vec::new(),
+                blocked_by: Vec::new(),
+                prefix: None,
+            },
+            false,
+        )
+        .expect_err("create command should fail");
+
+        assert_eq!(error.code, crate::output::ErrorCode::Validation);
+        assert!(error.message.contains("invalid status"));
     }
 
     #[test]
