@@ -3,8 +3,9 @@
 title: 'CLI: show command'
 status: todo
 type: task
+priority: normal
 created_at: 2026-04-17T13:35:00Z
-updated_at: 2026-04-17T13:35:00Z
+updated_at: 2026-04-17T18:23:35Z
 parent: ish-gt2k
 blocked_by:
     - ish-ffou

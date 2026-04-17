@@ -1,11 +1,11 @@
 ---
 # ish-4b45
 title: 'CLI: prime command'
-status: in-progress
+status: todo
 type: task
 priority: normal
 created_at: 2026-04-17T13:35:00Z
-updated_at: 2026-04-17T15:15:01Z
+updated_at: 2026-04-17T18:23:35Z
 parent: ish-gt2k
 blocked_by:
     - ish-614c
