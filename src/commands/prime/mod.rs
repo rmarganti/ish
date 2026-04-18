@@ -155,12 +155,12 @@ fn render_template(template: &str, replacements: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::prime_command;
+    use super::prime_output;
     use crate::app::run;
     use crate::cli::{Cli, Commands};
     use crate::config::Config;
     use crate::test_support::{TestDir, WorkingDirGuard};
     use serde_json::Value;
-    use super::prime_output;
 
     #[test]
     fn run_prime_returns_rendered_guide_when_config_exists() {
