@@ -4,17 +4,30 @@ A terminal-based issue tracker written in Rust. s flag)
 
 ## Feedback Loop
 
+Install the configured toolchain first if needed:
+
+```bash
+mise install --locked
+```
+
 ### Test
 
 ```bash
-cargo test
+mise run test
 ```
 
 ### Lint
 
+Includes both format checking and clippy:
+
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
+mise run lint
+```
+
+### Full feedback loop
+
+```bash
+mise run ci
 ```
 
 **Always run the feedback loop after making changes to verify correctness.**

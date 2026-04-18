@@ -1,0 +1,34 @@
+[tools]
+rust = { version = "latest", components = ["rustfmt", "clippy"] }
+
+[tasks.test]
+description = "Run tests"
+run = "cargo test"
+
+[tasks.fmt-check]
+description = "Check code formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Run clippy"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks.lint]
+description = "Run formatter and linter checks"
+depends = ["fmt-check", "clippy"]
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt --all"
+
+[tasks.build]
+description = "Build the project"
+run = "cargo build"
+
+[tasks.build-release]
+description = "Build the project in release mode"
+run = "cargo build --release"
+
+[tasks.ci]
+description = "Run the full CI feedback loop"
+depends = ["lint", "test"]
