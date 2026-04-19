@@ -5,8 +5,6 @@ use std::fs;
 use std::path::Path;
 
 const STORE_DIRECTORY: &str = ".ish";
-const STORE_GITIGNORE_NAME: &str = ".gitignore";
-pub(crate) const STORE_GITIGNORE_CONTENT: &str = ".conversations/\n";
 
 pub(crate) fn init_command(json: bool) -> Result<Option<String>, AppError> {
     let current_dir = current_dir()?;
@@ -18,16 +16,6 @@ pub(crate) fn init_command(json: bool) -> Result<Option<String>, AppError> {
             format!("failed to create `{STORE_DIRECTORY}` directory: {error}"),
         )
     })?;
-
-    let gitignore_path = current_dir.join(STORE_DIRECTORY).join(STORE_GITIGNORE_NAME);
-    if !gitignore_path.exists() {
-        fs::write(&gitignore_path, STORE_GITIGNORE_CONTENT).map_err(|error| {
-            AppError::new(
-                ErrorCode::FileError,
-                format!("failed to write `{}`: {error}", gitignore_path.display()),
-            )
-        })?;
-    }
 
     let config_path = current_dir.join(CONFIG_FILE_NAME);
     let message = if config_path.exists() {
@@ -69,7 +57,7 @@ fn project_name(dir: &Path) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{STORE_GITIGNORE_CONTENT, init_command};
+    use super::init_command;
     use crate::app::run;
     use crate::cli::{Cli, Commands};
     use crate::config::{CONFIG_FILE_NAME, Config};
@@ -93,11 +81,7 @@ mod tests {
         .expect("init command should print output");
 
         assert!(output.contains("initialized ish project"));
-        assert_eq!(
-            fs::read_to_string(project_dir.join(".ish").join(".gitignore"))
-                .expect("gitignore should be written"),
-            STORE_GITIGNORE_CONTENT
-        );
+        assert!(project_dir.join(".ish").is_dir());
 
         let config = Config::load(project_dir.join(CONFIG_FILE_NAME)).expect("config should load");
         assert_eq!(config.ish.path, ".ish");
@@ -124,11 +108,7 @@ mod tests {
         let loaded = Config::load(project_dir.join(CONFIG_FILE_NAME)).expect("config should load");
         assert_eq!(loaded.ish.prefix, "custom");
         assert_eq!(loaded.project.name, "Custom Name");
-        assert_eq!(
-            fs::read_to_string(project_dir.join(".ish").join(".gitignore"))
-                .expect("gitignore should be written"),
-            STORE_GITIGNORE_CONTENT
-        );
+        assert!(project_dir.join(".ish").is_dir());
     }
 
     #[test]

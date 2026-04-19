@@ -10,7 +10,6 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const GITIGNORE_CONTENTS: &str = ".conversations/\n";
 const ARCHIVE_DIR_NAME: &str = "archive";
 
 #[derive(Debug)]
@@ -138,11 +137,6 @@ impl Store {
     pub fn new(root: impl Into<PathBuf>, config: Config) -> Result<Self, StoreError> {
         let root = root.into();
         fs::create_dir_all(&root).map_err(StoreError::Io)?;
-
-        let gitignore_path = root.join(".gitignore");
-        if !gitignore_path.exists() {
-            fs::write(gitignore_path, GITIGNORE_CONTENTS).map_err(StoreError::Io)?;
-        }
 
         Ok(Self {
             root,
@@ -1169,8 +1163,7 @@ fn split_frontmatter(content: &str) -> Option<(String, String, String)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateIsh, GITIGNORE_CONTENTS, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store,
-        StoreError, UpdateIsh,
+        CreateIsh, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError, UpdateIsh,
     };
     use crate::config::Config;
     use chrono::{TimeZone, Utc};
@@ -1206,17 +1199,14 @@ mod tests {
     }
 
     #[test]
-    fn new_initializes_root_directory_and_gitignore() {
+    fn new_initializes_root_directory() {
         let temp = TestDir::new();
         let root = temp.path().join(".ish");
 
         let _store = Store::new(&root, Config::default()).expect("store should initialize");
 
         assert!(root.is_dir());
-        assert_eq!(
-            fs::read_to_string(root.join(".gitignore")).expect("gitignore should exist"),
-            GITIGNORE_CONTENTS
-        );
+        assert!(!root.join(".gitignore").exists());
     }
 
     #[test]
@@ -1224,7 +1214,7 @@ mod tests {
         let temp = TestDir::new();
         let root = temp.path().join(".ish");
         let archive_dir = root.join("archive");
-        let hidden_dir = root.join(".conversations");
+        let hidden_dir = root.join(".hidden");
 
         fs::create_dir_all(&archive_dir).expect("archive dir should exist");
         fs::create_dir_all(&hidden_dir).expect("hidden dir should exist");
