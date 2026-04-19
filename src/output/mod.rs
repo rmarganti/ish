@@ -481,7 +481,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use colored::{Color, control};
     use serde_json::{Value, json};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Mutex};
 
     fn sample_ish_json(id: &str) -> crate::model::ish::IshJson {
         Ish {
@@ -549,6 +549,30 @@ mod tests {
         }
 
         plain
+    }
+
+    static COLOR_OVERRIDE_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_color_override<T>(enabled: bool, f: impl FnOnce() -> T) -> T {
+        let _lock = COLOR_OVERRIDE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        struct ResetColorOverride(bool);
+
+        impl Drop for ResetColorOverride {
+            fn drop(&mut self) {
+                control::set_override(self.0);
+            }
+        }
+
+        let reset = ResetColorOverride(control::SHOULD_COLORIZE.should_colorize());
+        control::set_override(enabled);
+
+        let result = f();
+
+        drop(reset);
+        result
     }
 
     #[test]
@@ -626,21 +650,31 @@ mod tests {
     #[test]
     fn render_helpers_apply_expected_labels_and_styles() {
         let config = Config::default();
-        let previous = control::SHOULD_COLORIZE.should_colorize();
-        control::set_override(true);
-
-        let active_status = render_status(&config, "todo");
-        let archive_status = render_status(&config, "completed");
-        let rendered_type = render_type(&config, "task");
-        let rendered_priority = render_priority(&config, "high");
-        let rendered_id = render_id("ish-abcd");
-        let rendered_muted = muted("secondary text");
-        let rendered_heading = heading("Heading");
-        let rendered_success = success("deleted");
-        let rendered_danger = danger("failed");
-        let rendered_warning = warning("careful");
-
-        control::set_override(previous);
+        let (
+            active_status,
+            archive_status,
+            rendered_type,
+            rendered_priority,
+            rendered_id,
+            rendered_muted,
+            rendered_heading,
+            rendered_success,
+            rendered_danger,
+            rendered_warning,
+        ) = with_color_override(true, || {
+            (
+                render_status(&config, "todo"),
+                render_status(&config, "completed"),
+                render_type(&config, "task"),
+                render_priority(&config, "high"),
+                render_id("ish-abcd"),
+                muted("secondary text"),
+                heading("Heading"),
+                success("deleted"),
+                danger("failed"),
+                warning("careful"),
+            )
+        });
 
         assert!(active_status.contains("[todo]"));
         assert!(archive_status.contains("[completed]"));
@@ -685,9 +719,6 @@ mod tests {
 
     #[test]
     fn render_tree_uses_connectors_implicit_status_tags_and_truncation() {
-        let previous = control::SHOULD_COLORIZE.should_colorize();
-        control::set_override(false);
-
         let config = Config::default();
         let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
         let child = tree_ish(
@@ -704,10 +735,12 @@ mod tests {
             &HashMap::from([(String::from("ish-child"), String::from("completed"))]),
         );
 
-        let rendered = render_tree(&tree, &config, 9, true, 120);
-        let truncated = render_tree(&tree, &config, 9, true, 45);
-
-        control::set_override(previous);
+        let (rendered, truncated) = with_color_override(false, || {
+            (
+                render_tree(&tree, &config, 9, true, 120),
+                render_tree(&tree, &config, 9, true, 45),
+            )
+        });
 
         assert!(rendered.contains("ish-root"));
         assert!(rendered.contains("[todo]"));
@@ -750,14 +783,11 @@ mod tests {
 
     #[test]
     fn render_markdown_formats_common_markdown_elements() {
-        let previous = control::SHOULD_COLORIZE.should_colorize();
-        control::set_override(true);
-
-        let rendered = render_markdown(
-            "# Title\n\nParagraph with **bold**, *italic*, and `code`.\n\n- item one\n- item two\n\n```rust\nfn main() {}\n```\n\n[example](https://example.com)",
-        );
-
-        control::set_override(previous);
+        let rendered = with_color_override(true, || {
+            render_markdown(
+                "# Title\n\nParagraph with **bold**, *italic*, and `code`.\n\n- item one\n- item two\n\n```rust\nfn main() {}\n```\n\n[example](https://example.com)",
+            )
+        });
 
         let plain = strip_ansi(&rendered);
         assert!(plain.contains("Title"));
@@ -770,15 +800,12 @@ mod tests {
 
     #[test]
     fn render_markdown_wraps_to_requested_width() {
-        let previous = control::SHOULD_COLORIZE.should_colorize();
-        control::set_override(false);
-
-        let rendered = render_markdown_with_width(
-            "This paragraph contains enough words to wrap across multiple lines when the width is intentionally narrow.",
-            24,
-        );
-
-        control::set_override(previous);
+        let rendered = with_color_override(false, || {
+            render_markdown_with_width(
+                "This paragraph contains enough words to wrap across multiple lines when the width is intentionally narrow.",
+                24,
+            )
+        });
 
         let plain = strip_ansi(&rendered);
         assert!(plain.lines().all(|line| line.chars().count() <= 24));
