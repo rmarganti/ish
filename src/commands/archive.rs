@@ -119,7 +119,6 @@ mod tests {
             .expect("archive command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["data"]["archived"], Value::from(1));
+        assert_eq!(parsed["archived"], Value::from(1));
     }
 }

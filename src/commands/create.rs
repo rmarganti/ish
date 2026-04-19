@@ -170,39 +170,26 @@ mod tests {
         .expect("create command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["title"], Value::String("Wire command".to_string()));
+        assert_eq!(parsed["status"], Value::String("in-progress".to_string()));
+        assert_eq!(parsed["type"], Value::String("task".to_string()));
+        assert_eq!(parsed["priority"], Value::String("high".to_string()));
         assert_eq!(
-            parsed["data"]["title"],
-            Value::String("Wire command".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["status"],
-            Value::String("in-progress".to_string())
-        );
-        assert_eq!(parsed["data"]["type"], Value::String("task".to_string()));
-        assert_eq!(
-            parsed["data"]["priority"],
-            Value::String("high".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["body"],
+            parsed["body"],
             Value::String("Body from file\n".to_string())
         );
+        assert_eq!(parsed["parent"], Value::String("ish-parent".to_string()));
         assert_eq!(
-            parsed["data"]["parent"],
-            Value::String("ish-parent".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["blocking"][0],
+            parsed["blocking"][0],
             Value::String("ish-blocker".to_string())
         );
         assert_eq!(
-            parsed["data"]["blocked_by"][0],
+            parsed["blocked_by"][0],
             Value::String("ish-dependency".to_string())
         );
-        assert_eq!(parsed["data"]["tags"][0], Value::String("cli".to_string()));
+        assert_eq!(parsed["tags"][0], Value::String("cli".to_string()));
         assert!(
-            parsed["data"]["id"]
+            parsed["id"]
                 .as_str()
                 .expect("id should be present")
                 .starts_with("feat-")

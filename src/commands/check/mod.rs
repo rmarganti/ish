@@ -137,10 +137,9 @@ mod tests {
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
 
         assert_eq!(outcome.exit_code, ExitCode::FAILURE);
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["data"]["summary"]["issues_found"], Value::from(1));
+        assert_eq!(parsed["summary"]["issues_found"], Value::from(1));
         assert_eq!(
-            parsed["data"]["checks"]["links"]["initial"]["broken_links"][0]["link_type"],
+            parsed["checks"]["links"]["initial"]["broken_links"][0]["link_type"],
             Value::String("blocked_by".to_string())
         );
     }

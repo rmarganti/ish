@@ -329,10 +329,9 @@ mod tests {
         .expect("delete command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["data"]["count"], Value::from(1));
-        assert_eq!(parsed["data"]["cleaned_links"], Value::from(0));
-        assert_eq!(parsed["data"]["deleted"][0]["id"], "ish-target");
+        assert_eq!(parsed["count"], Value::from(1));
+        assert_eq!(parsed["cleaned_links"], Value::from(0));
+        assert_eq!(parsed["deleted"][0]["id"], "ish-target");
         assert!(prompt_output.is_empty());
         assert!(!store_root.join("ish-target--target.md").exists());
     }

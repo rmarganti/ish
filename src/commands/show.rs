@@ -238,12 +238,10 @@ mod tests {
         .expect("show command should succeed")
         .expect("show command should print output");
         let parsed: Value = serde_json::from_str(&json_output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(parsed["ishes"][0]["id"], "ish-target");
-        assert_eq!(parsed["ishes"][0]["parent"], "ish-parent");
-        assert_eq!(parsed["ishes"][0]["blocking"][0], "ish-blocker");
-        assert!(parsed["ishes"][0].get("etag").is_some());
+        assert_eq!(parsed[0]["id"], "ish-target");
+        assert_eq!(parsed[0]["parent"], "ish-parent");
+        assert_eq!(parsed[0]["blocking"][0], "ish-blocker");
+        assert!(parsed[0].get("etag").is_some());
 
         let raw_output = show_command(
             ShowArgs {

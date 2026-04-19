@@ -124,10 +124,8 @@ mod tests {
         .expect("list command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(parsed["ishes"][0]["id"], "ish-alpha");
-        assert!(parsed["ishes"][0].get("body").is_none());
+        assert_eq!(parsed[0]["id"], "ish-alpha");
+        assert!(parsed[0].get("body").is_none());
     }
 
     #[test]
@@ -180,7 +178,7 @@ mod tests {
         .expect("list command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["ishes"][0]["body"], "Detailed body.");
+        assert_eq!(parsed[0]["body"], "Detailed body.");
     }
 
     #[test]
@@ -417,8 +415,6 @@ mod tests {
         .expect("list output should be present");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(parsed["ishes"][0]["id"], "ish-abcd");
+        assert_eq!(parsed[0]["id"], "ish-abcd");
     }
 }

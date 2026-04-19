@@ -247,44 +247,25 @@ mod tests {
         .expect("update command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
+        assert_eq!(parsed["id"], Value::String("ish-target".to_string()));
+        assert_eq!(parsed["status"], Value::String("in-progress".to_string()));
+        assert_eq!(parsed["type"], Value::String("bug".to_string()));
+        assert_eq!(parsed["priority"], Value::String("high".to_string()));
+        assert_eq!(parsed["title"], Value::String("Updated title".to_string()));
         assert_eq!(
-            parsed["data"]["id"],
-            Value::String("ish-target".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["status"],
-            Value::String("in-progress".to_string())
-        );
-        assert_eq!(parsed["data"]["type"], Value::String("bug".to_string()));
-        assert_eq!(
-            parsed["data"]["priority"],
-            Value::String("high".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["title"],
-            Value::String("Updated title".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["body"],
+            parsed["body"],
             Value::String("Alpha replacement\n\nAppended text".to_string())
         );
+        assert_eq!(parsed["parent"], Value::String("ish-parent".to_string()));
         assert_eq!(
-            parsed["data"]["parent"],
-            Value::String("ish-parent".to_string())
-        );
-        assert_eq!(
-            parsed["data"]["blocking"][0],
+            parsed["blocking"][0],
             Value::String("ish-blocker".to_string())
         );
         assert_eq!(
-            parsed["data"]["blocked_by"][0],
+            parsed["blocked_by"][0],
             Value::String("ish-dependency".to_string())
         );
-        assert_eq!(
-            parsed["data"]["tags"][0],
-            Value::String("new-tag".to_string())
-        );
+        assert_eq!(parsed["tags"][0], Value::String("new-tag".to_string()));
         assert!(store_root.join("ish-target--updated-title.md").exists());
         assert!(!store_root.join("ish-target--original-title.md").exists());
     }

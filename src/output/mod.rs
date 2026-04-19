@@ -55,38 +55,15 @@ pub struct TreeNode<'a> {
 }
 
 pub fn output_success<T: Serialize>(data: T) -> Result<String, String> {
-    render(Response::<T> {
-        success: true,
-        message: None,
-        data: Some(data),
-        ishes: None,
-        count: None,
-        code: None,
-    })
+    serde_json::to_string_pretty(&data).map_err(|e| e.to_string())
 }
 
-#[allow(dead_code)]
 pub fn output_success_multiple<T: Serialize>(ishes: Vec<T>) -> Result<String, String> {
-    let count = ishes.len();
-    render(Response::<(), T> {
-        success: true,
-        message: None,
-        data: None,
-        ishes: Some(ishes),
-        count: Some(count),
-        code: None,
-    })
+    serde_json::to_string_pretty(&ishes).map_err(|e| e.to_string())
 }
 
 pub fn output_message(message: impl Into<String>) -> Result<String, String> {
-    render(Response::<()> {
-        success: true,
-        message: Some(message.into()),
-        data: None,
-        ishes: None,
-        count: None,
-        code: None,
-    })
+    serde_json::to_string_pretty(&message.into()).map_err(|e| e.to_string())
 }
 
 pub fn output_error(code: ErrorCode, message: impl Into<String>) -> String {
@@ -580,26 +557,16 @@ mod tests {
         let rendered = output_success(json!({"version": "0.1.0"})).expect("json should render");
         let parsed: Value = serde_json::from_str(&rendered).expect("json should parse");
 
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(
-            parsed["data"]["version"],
-            Value::String("0.1.0".to_string())
-        );
-        assert!(parsed.get("message").is_none());
+        assert_eq!(parsed["version"], Value::String("0.1.0".to_string()));
     }
 
     #[test]
-    fn output_success_multiple_includes_count() {
+    fn output_success_multiple_outputs_bare_array() {
         let rendered =
             output_success_multiple(vec![sample_ish_json("ish-a1")]).expect("json should render");
         let parsed: Value = serde_json::from_str(&rendered).expect("json should parse");
 
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["count"], Value::from(1));
-        assert_eq!(
-            parsed["ishes"][0]["id"],
-            Value::String("ish-a1".to_string())
-        );
+        assert_eq!(parsed[0]["id"], Value::String("ish-a1".to_string()));
     }
 
     #[test]
@@ -621,9 +588,7 @@ mod tests {
         let rendered = output_message("ready").expect("json should render");
         let parsed: Value = serde_json::from_str(&rendered).expect("json should parse");
 
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["message"], Value::String("ready".to_string()));
-        assert!(parsed.get("data").is_none());
+        assert_eq!(parsed, Value::String("ready".to_string()));
     }
 
     #[test]

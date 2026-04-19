@@ -207,9 +207,8 @@ mod tests {
             .expect("prime command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
         assert!(
-            parsed["message"]
+            parsed
                 .as_str()
                 .expect("message should be present")
                 .contains("# ish Agent Guide")

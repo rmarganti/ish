@@ -59,7 +59,6 @@ mod tests {
         .expect("version command should print output");
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
-        assert_eq!(parsed["success"], Value::Bool(true));
-        assert_eq!(parsed["message"], Value::String(version_output()));
+        assert_eq!(parsed, Value::String(version_output()));
     }
 }
