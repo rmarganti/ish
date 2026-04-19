@@ -1,33 +1,14 @@
 # ish
 
-A terminal-based issue tracker written in Rust. s flag)
+Terminal-based issue tracker written in Rust.
 
-## Feedback Loop
+## Agent notes
 
-Install the configured toolchain first if needed:
-
-```bash
-mise install --locked
-```
-
-### Test
-
-```bash
-mise run test
-```
-
-### Lint
-
-Includes both format checking and clippy:
-
-```bash
-mise run lint
-```
-
-### Full feedback loop
-
-```bash
-mise run ci
-```
-
-**Always run the feedback loop after making changes to verify correctness.**
+- Use the project toolchain via `mise`.
+- Do not run `cargo ...` directly; use `mise exec -- cargo ...` if needed.
+- Install the toolchain with `mise install --locked`.
+- Common commands:
+  - `mise run test`
+  - `mise run lint`
+  - `mise run ci`
+- **IMPORTANT:** After changes, run `mise run ci`.

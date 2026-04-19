@@ -130,7 +130,7 @@ mod tests {
 
         let outcome = run(Cli {
             json: true,
-            command: Some(Commands::Check(CheckArgs { fix: false })),
+            command: Commands::Check(CheckArgs { fix: false }),
         })
         .expect("check command should succeed");
         let output = outcome.output.expect("check command should print output");

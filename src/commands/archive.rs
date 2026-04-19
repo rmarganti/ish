@@ -64,7 +64,7 @@ mod tests {
 
         let output = run(Cli {
             json: false,
-            command: Some(Commands::Archive),
+            command: Commands::Archive,
         })
         .expect("archive command should succeed")
         .output

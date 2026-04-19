@@ -172,7 +172,7 @@ mod tests {
 
         let output = run(Cli {
             json: false,
-            command: Some(Commands::Prime),
+            command: Commands::Prime,
         })
         .expect("prime command should succeed")
         .output

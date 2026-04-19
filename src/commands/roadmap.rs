@@ -62,13 +62,13 @@ mod tests {
         let _guard = WorkingDirGuard::change_to(temp.path());
 
         let output = run(Cli {
-            command: Some(Commands::Roadmap(RoadmapArgs {
+            command: Commands::Roadmap(RoadmapArgs {
                 include_done: false,
                 status: Vec::new(),
                 no_status: Vec::new(),
                 no_links: true,
                 link_prefix: None,
-            })),
+            }),
             json: false,
         })
         .expect("roadmap command should succeed")
@@ -116,13 +116,13 @@ mod tests {
 
         let output = run(Cli {
             json: true,
-            command: Some(Commands::Roadmap(RoadmapArgs {
+            command: Commands::Roadmap(RoadmapArgs {
                 include_done: false,
                 status: Vec::new(),
                 no_status: Vec::new(),
                 no_links: true,
                 link_prefix: None,
-            })),
+            }),
         })
         .expect("roadmap command should succeed")
         .output

@@ -390,7 +390,7 @@ mod tests {
 
         let output = run(Cli {
             json: true,
-            command: Some(Commands::List(ListArgs {
+            command: Commands::List(ListArgs {
                 status: Vec::new(),
                 no_status: Vec::new(),
                 ish_type: Vec::new(),
@@ -410,7 +410,7 @@ mod tests {
                 sort: None,
                 quiet: false,
                 full: false,
-            })),
+            }),
         })
         .expect("run should succeed")
         .output

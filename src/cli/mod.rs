@@ -4,13 +4,13 @@ use crate::core::SortMode;
 
 /// A terminal-based issue tracker.
 #[derive(Parser)]
-#[command(name = "ish", version, about)]
+#[command(name = "ish", version, about, arg_required_else_help = true)]
 pub struct Cli {
     /// Output structured JSON.
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
-    pub command: Option<Commands>,
+    pub command: Commands,
 }
 
 #[derive(Subcommand)]
@@ -289,7 +289,7 @@ mod tests {
             .expect("delete alias should parse successfully");
 
         match cli.command {
-            Some(crate::cli::Commands::Delete(args)) => {
+            crate::cli::Commands::Delete(args) => {
                 assert_eq!(args.ids, vec!["target".to_string()]);
                 assert!(!args.force);
             }
@@ -303,7 +303,7 @@ mod tests {
             .expect("list alias should parse successfully");
 
         match cli.command {
-            Some(crate::cli::Commands::List(args)) => {
+            crate::cli::Commands::List(args) => {
                 assert!(args.ready);
                 assert!(!args.quiet);
             }
@@ -317,7 +317,7 @@ mod tests {
             .expect("show command should parse successfully");
 
         match cli.command {
-            Some(crate::cli::Commands::Show(args)) => {
+            crate::cli::Commands::Show(args) => {
                 assert_eq!(args.ids, vec!["abcd".to_string(), "efgh".to_string()]);
                 assert!(args.body_only);
                 assert!(!args.raw);
@@ -325,5 +325,21 @@ mod tests {
             }
             _ => panic!("expected show command"),
         }
+    }
+
+    #[test]
+    fn cli_without_subcommand_shows_help() {
+        let error = match crate::cli::Cli::try_parse_from(["ish"]) {
+            Ok(_) => panic!("cli should require a subcommand"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let rendered = error.to_string();
+        assert!(rendered.contains("Usage: ish [OPTIONS] <COMMAND>"));
+        assert!(rendered.contains("Commands:"));
     }
 }

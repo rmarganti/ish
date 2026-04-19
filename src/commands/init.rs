@@ -86,7 +86,7 @@ mod tests {
 
         let output = run(Cli {
             json: false,
-            command: Some(Commands::Init),
+            command: Commands::Init,
         })
         .expect("init command should succeed")
         .output
