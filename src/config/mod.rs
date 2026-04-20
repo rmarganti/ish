@@ -302,6 +302,7 @@ mod tests {
     use super::{CONFIG_FILE_NAME, Config, find_config, find_config_within};
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestDir {
@@ -310,10 +311,7 @@ mod tests {
 
     impl TestDir {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
+            let unique = next_unique_suffix();
             let path = std::env::temp_dir().join(format!("ish-config-test-{unique}"));
 
             fs::create_dir_all(&path).expect("temp dir should be created");
@@ -330,6 +328,16 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    fn next_unique_suffix() -> String {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("{}-{}-{}", std::process::id(), timestamp, counter)
     }
 
     #[test]

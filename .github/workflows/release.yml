@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v (for example 0.1.0)
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_EXPERIMENTAL: true
+  MISE_LOCKED: true
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release_meta.outputs.version }}
+      tag: ${{ steps.release_meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: release_meta
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$VERSION" == v* ]]; then
+            echo "Release version must not include a leading v: $VERSION" >&2
+            exit 1
+          fi
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*([+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version must look like a semantic version, for example 0.1.0 or 1.2.3-rc.1" >&2
+            exit 1
+          fi
+
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if the tag already exists remotely
+        env:
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Create and push the annotated tag
+        env:
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/$TAG"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runs_on: macos-14
+            target: aarch64-apple-darwin
+            binary_path: target/aarch64-apple-darwin/release/ish
+            build_command: mise exec -- rustup target add aarch64-apple-darwin && mise exec -- cargo build --release --target aarch64-apple-darwin
+          - name: Linux x86_64 musl
+            runs_on: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary_path: target/x86_64-unknown-linux-musl/release/ish
+            build_command: mise exec -- rustup target add x86_64-unknown-linux-musl && mise exec -- cargo install cargo-zigbuild --locked && mise exec -- cargo zigbuild --release --target x86_64-unknown-linux-musl
+          - name: Linux aarch64 musl
+            runs_on: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            binary_path: target/aarch64-unknown-linux-musl/release/ish
+            build_command: mise exec -- rustup target add aarch64-unknown-linux-musl && mise exec -- cargo install cargo-zigbuild --locked && mise exec -- cargo zigbuild --release --target aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: jdx/mise-action@v3
+
+      - name: Build release artifact
+        env:
+          ISH_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+        run: ${{ matrix.build_command }}
+
+      - name: Verify embedded release version
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          BINARY_PATH: ${{ matrix.binary_path }}
+        run: |
+          set -euo pipefail
+          actual_version="$($BINARY_PATH version)"
+          if [[ "$actual_version" != "ish $EXPECTED_VERSION" ]]; then
+            echo "expected embedded version 'ish $EXPECTED_VERSION' but got '$actual_version'" >&2
+            exit 1
+          fi
+
+      - name: Verify Linux musl artifact
+        if: startsWith(matrix.target, 'x86_64-unknown-linux-musl') || startsWith(matrix.target, 'aarch64-unknown-linux-musl')
+        run: ./scripts/verify-linux-musl-artifact.sh "${{ matrix.target }}" "${{ matrix.binary_path }}"
+
+      - name: Smoke-test x86_64 musl artifact in Alpine
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: ./scripts/smoke-test-alpine.sh linux/amd64 "${{ matrix.binary_path }}" version
+
+      - name: Package release artifact
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          BINARY_PATH: ${{ matrix.binary_path }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          artifact_name="ish-${TAG}-${TARGET}.tar.gz"
+          binary_dir=$(dirname "$BINARY_PATH")
+          tar -C "$binary_dir" -czf "dist/$artifact_name" ish
+          echo "Created dist/$artifact_name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate release checksums
+        run: ./scripts/generate-release-checksums.sh dist/*.tar.gz
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/* \
+            --title "ish $TAG" \
+            --generate-notes \
+            --verify-tag

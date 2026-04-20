@@ -4,7 +4,12 @@ use crate::core::SortMode;
 
 /// A terminal-based issue tracker.
 #[derive(Parser)]
-#[command(name = "ish", version, about, arg_required_else_help = true)]
+#[command(
+    name = "ish",
+    version = crate::version::BUILD_VERSION,
+    about,
+    arg_required_else_help = true
+)]
 pub struct Cli {
     /// Output structured JSON.
     #[arg(long, global = true)]
@@ -281,7 +286,9 @@ pub struct DeleteArgs {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
+
+    use crate::version::BUILD_VERSION;
 
     #[test]
     fn cli_parses_delete_alias() {
@@ -341,5 +348,12 @@ mod tests {
         let rendered = error.to_string();
         assert!(rendered.contains("Usage: ish [OPTIONS] <COMMAND>"));
         assert!(rendered.contains("Commands:"));
+    }
+
+    #[test]
+    fn cli_built_in_version_uses_build_version() {
+        let rendered = crate::cli::Cli::command().render_version().to_string();
+
+        assert_eq!(rendered, format!("ish {BUILD_VERSION}\n"));
     }
 }
