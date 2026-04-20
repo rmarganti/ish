@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,10 +10,7 @@ pub(crate) struct TestDir {
 
 impl TestDir {
     pub(crate) fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
+        let unique = next_unique_suffix();
         let path = std::env::temp_dir().join(format!("ish-test-{unique}"));
         fs::create_dir_all(&path).expect("temp dir should be created");
 
@@ -39,7 +37,7 @@ impl WorkingDirGuard {
     pub(crate) fn change_to(path: &Path) -> Self {
         let lock = cwd_lock()
             .lock()
-            .expect("working directory test lock should not be poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let original = std::env::current_dir().expect("current directory should be readable");
         std::env::set_current_dir(path).expect("current directory should be changed");
         Self {
@@ -58,6 +56,16 @@ impl Drop for WorkingDirGuard {
 fn cwd_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn next_unique_suffix() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_nanos();
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{}-{}", std::process::id(), timestamp, counter)
 }
 
 #[allow(clippy::too_many_arguments)]
