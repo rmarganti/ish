@@ -156,11 +156,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: release-*
           merge-multiple: true
+
+      - name: Generate release checksums
+        run: ./scripts/generate-release-checksums.sh dist/*.tar.gz
 
       - name: Publish the GitHub Release
         env:

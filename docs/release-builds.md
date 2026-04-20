@@ -70,4 +70,27 @@ On this workstation, Docker image pulls were not available, so the local proof r
 - `ish-v<version>-x86_64-unknown-linux-musl.tar.gz`
 - `ish-v<version>-aarch64-unknown-linux-musl.tar.gz`
 
-The workflow dispatch input expects the bare version number (for example `0.1.0`), creates the matching annotated `v<version>` tag, injects `ISH_BUILD_VERSION=<version>` at build time, verifies `ish version`, and then publishes the GitHub Release with generated notes.
+Before publishing, the workflow runs `./scripts/generate-release-checksums.sh dist/*.tar.gz`, which produces:
+
+- one per-artifact checksum file next to each tarball, for example `ish-v<version>-x86_64-unknown-linux-musl.tar.gz.sha256`
+- a combined `SHA256SUMS` manifest covering every packaged tarball
+
+The workflow dispatch input expects the bare version number (for example `0.1.0`), creates the matching annotated `v<version>` tag, injects `ISH_BUILD_VERSION=<version>` at build time, verifies `ish version`, and then publishes the GitHub Release with generated notes and the checksum assets.
+
+## Operator release checklist
+
+1. Confirm the branch to release is merged to the default branch so `workflow_dispatch` can see `release.yml`.
+2. Trigger **Release** in GitHub Actions with `version=<semver-without-v>`.
+3. Wait for the `prepare`, `build`, and `publish` jobs to finish successfully.
+4. Open the GitHub Release for `v<version>` and verify these assets exist:
+   - the three target tarballs
+   - three matching `.tar.gz.sha256` files
+   - `SHA256SUMS`
+5. Spot-check the asset names match the documented convention above.
+6. Download one artifact and confirm its checksum matches either the per-file `.sha256` asset or the `SHA256SUMS` manifest.
+7. Confirm the release page shows GitHub-generated notes.
+
+## Current end-to-end validation status
+
+- Local validation covers YAML parsing, `actionlint`, checksum generation, and `mise run ci`.
+- A real GitHub Actions dispatch still has to happen from the default branch; GitHub rejects `gh workflow run release.yml` while the workflow only exists on a non-default branch.
