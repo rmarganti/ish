@@ -1,5 +1,6 @@
 [tools]
 rust = { version = "latest", profile = "default" }
+zig = "latest"
 
 [tasks.test]
 description = "Run tests"
@@ -28,6 +29,22 @@ run = "cargo build"
 [tasks.build-release]
 description = "Build the project in release mode"
 run = "cargo build --release"
+
+[tasks.build-release-linux-musl-x86_64]
+description = "Build the x86_64 Linux musl release binary via cargo-zigbuild"
+run = "rustup target add x86_64-unknown-linux-musl && cargo zigbuild --release --target x86_64-unknown-linux-musl"
+
+[tasks.build-release-linux-musl-aarch64]
+description = "Build the aarch64 Linux musl release binary via cargo-zigbuild"
+run = "rustup target add aarch64-unknown-linux-musl && cargo zigbuild --release --target aarch64-unknown-linux-musl"
+
+[tasks.build-release-linux-musl]
+description = "Build both Linux musl release binaries via cargo-zigbuild"
+run = "mise run build-release-linux-musl-x86_64 && mise run build-release-linux-musl-aarch64"
+
+[tasks.verify-release-linux-musl]
+description = "Verify the Linux musl release binaries are static ELF artifacts"
+run = "./scripts/verify-linux-musl-artifact.sh x86_64-unknown-linux-musl target/x86_64-unknown-linux-musl/release/ish && ./scripts/verify-linux-musl-artifact.sh aarch64-unknown-linux-musl target/aarch64-unknown-linux-musl/release/ish"
 
 [tasks.ci]
 description = "Run the full CI feedback loop"
