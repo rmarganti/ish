@@ -61,3 +61,13 @@ The release workflow can also smoke-test the x86_64 artifact inside Alpine with:
 ```
 
 On this workstation, Docker image pulls were not available, so the local proof relied on static ELF verification via `file`. The Alpine smoke-test script is checked in so the release workflow can run the same command on a GitHub-hosted Linux runner where Docker is available.
+
+## GitHub Actions release workflow
+
+`.github/workflows/release.yml` reuses these same build commands and packages each target as a tarball named:
+
+- `ish-v<version>-aarch64-apple-darwin.tar.gz`
+- `ish-v<version>-x86_64-unknown-linux-musl.tar.gz`
+- `ish-v<version>-aarch64-unknown-linux-musl.tar.gz`
+
+The workflow dispatch input expects the bare version number (for example `0.1.0`), creates the matching annotated `v<version>` tag, injects `ISH_BUILD_VERSION=<version>` at build time, verifies `ish version`, and then publishes the GitHub Release with generated notes.
