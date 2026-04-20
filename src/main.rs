@@ -8,6 +8,7 @@ mod output;
 mod roadmap;
 #[cfg(test)]
 mod test_support;
+mod version;
 
 use clap::Parser;
 use std::process::ExitCode;
