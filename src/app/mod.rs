@@ -11,7 +11,7 @@ use crate::output::output_message;
 
 pub fn run(cli: Cli) -> Result<RunOutcome, AppError> {
     match cli.command {
-        Commands::Init => crate::commands::init_command(cli.json).map(success_outcome),
+        Commands::Init(args) => crate::commands::init_command(args, cli.json).map(success_outcome),
         Commands::Create(args) => {
             crate::commands::create_command(args, cli.json).map(success_outcome)
         }

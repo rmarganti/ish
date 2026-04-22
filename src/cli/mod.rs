@@ -21,7 +21,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Initialize a new ish project in the current directory.
-    Init,
+    Init(InitArgs),
     /// Create a new ish markdown file.
     Create(CreateArgs),
     /// List ishes, optionally filtered and sorted.
@@ -45,6 +45,14 @@ pub enum Commands {
     Roadmap(RoadmapArgs),
     /// Print the current ish version.
     Version,
+}
+
+#[derive(Args)]
+pub struct InitArgs {
+    /// Hide ish from git by using .git/info/exclude instead of .gitignore.
+    /// Only supported inside a git repository.
+    #[arg(long)]
+    pub stealth: bool,
 }
 
 #[derive(Args)]
