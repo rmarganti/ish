@@ -115,3 +115,19 @@
   - `mise exec -- cargo test tui::update -- --nocapture`
   - `mise exec -- cargo test`
   - `mise run ci`
+- Completed `ish-jrw0` (`TUI: implement keymap (per-screen key->Msg)`).
+- Replaced the `src/tui/keymap.rs` stub with the first real pure keymap layer:
+  - global `Ctrl-c` quit handling before per-screen dispatch
+  - cross-screen `?` help toggle everywhere except the help overlay itself
+  - board/detail/picker/create-form/help key tables mapped onto the existing `Msg` variants used by update/runtime
+- Added create-form-specific mapping behavior keyed off `focused_field`:
+  - `Enter` only submits on the submit row
+  - left/right and `h`/`l` cycle type or priority only when those selector fields are focused
+  - printable text, backspace, and clear events continue to flow through `FormFieldEdit`
+- Notes for future workers:
+  - The keymap remains intentionally model-free; runtime work should pass the current top `Screen` into `map_key(...)` and feed the resulting `Msg` directly into `tui::update::update(...)`.
+  - Dedicated binding coverage is still pending in `ish-qevm`, so if you touch bindings while landing runtime/view work, add or update those unit tests in that follow-up task rather than relying on manual behavior.
+- Verification completed for this keymap step:
+  - `mise exec -- cargo test`
+  - `mise exec -- ish check`
+  - `mise run ci`

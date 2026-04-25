@@ -1,13 +1,13 @@
 ---
 # ish-jrw0
 title: 'TUI: implement keymap (per-screen key->Msg)'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.555644Z
-updated_at: 2026-04-25T03:21:17.724802Z
+updated_at: 2026-04-25T04:03:22.998887Z
 parent: ish-q6t1
 blocked_by:
 - ish-8dtp
@@ -45,3 +45,18 @@ Implement the pure context-aware key mapping from `crossterm::KeyEvent` to
 - `mise run ci` passes.
 - Unit tests covered separately (per-screen key→msg tables) in the keymap
   unit-test ish that depends on this one.
+
+
+## Implementation notes
+- Replaced the `src/tui/keymap.rs` stub with a pure `map_key(&Screen, KeyEvent) -> Option<Msg>` dispatcher that applies global `Ctrl-c` quit handling first, exposes `?` as the cross-screen help toggle outside the help overlay itself, and then falls through to per-screen key tables.
+- Added board/detail/picker/create-form/help mappings covering the currently implemented navigation, modal, refresh, edit, submit, and quit flows expected by the PRD and the TUI task breakdown.
+- The create-form mapper now keys off `CreateFormState::focused_field` so `Enter` only submits on the submit row while left/right and `h`/`l` cycle type/priority when those fields are focused; text editing remains a pure `FormFieldEdit` stream.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise exec -- ish check`
+- `mise run ci`
+
+## Follow-up notes
+- `src/tui/keymap.rs` deliberately stays model-free; when the runtime lands it should call `map_key(...)` with the current top screen and feed the returned `Msg` straight into `tui::update::update(...)`.
+- Dedicated keymap assertions are still expected in `ish-qevm`; this task only lands the mapping implementation itself.
