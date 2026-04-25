@@ -1,13 +1,13 @@
 ---
 # ish-5017
 title: 'TUI: theme module and shared style helpers'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.617096Z
-updated_at: 2026-04-25T03:21:17.744676Z
+updated_at: 2026-04-25T03:47:02.333742Z
 parent: ish-q6t1
 blocked_by:
 - ish-loy6
@@ -40,3 +40,16 @@ the TUI feels like the same product.
 - Theme is consumed by view ishes. A tiny snapshot is acceptable: a unit
   test that asserts the four kanban-column colors are non-default and
   match the `ish list` palette.
+
+
+## Implementation notes
+- Replaced the TUI theme stub with a shared palette module in `src/tui/theme.rs` that now exposes config-backed status/type/priority colors plus `status_style`, `type_style`, `priority_style`, `severity_style`, `card_border`, `column_header`, `footer_key`, and `footer_desc` helpers.
+- Added `output::color_name_to_ratatui(...)` in `src/output/mod.rs` and made the existing color-name mapping reusable so the TUI and CLI now resolve the same configured palette names through one bridge.
+- Added theme tests that pin the four kanban-column colors to the CLI palette, assert type/priority mappings, and cover the shared widget/status-line styling modifiers.
+
+## Validation
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- Future view work should import styling from `crate::tui::theme` instead of hard-coding `ratatui` colors so later palette tweaks stay centralized.

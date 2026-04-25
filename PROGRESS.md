@@ -54,3 +54,19 @@
 - Verification completed for this helper groundwork step:
   - `mise exec -- cargo test`
   - `mise run ci`
+- Completed `ish-5017` (`TUI: theme module and shared style helpers`).
+- Added the first real shared TUI palette implementation in `src/tui/theme.rs`:
+  - status/type/priority color lookups sourced from `Config`
+  - `status_style`, `type_style`, `priority_style`, and `severity_style`
+  - shared widget helpers for card borders, column headers, and footer text
+- Added a small cross-UI color adapter in `src/output/mod.rs` so the existing CLI color-name mapping now also produces `ratatui::style::Color` values for the TUI.
+- Added focused theme coverage that future view work can lean on:
+  - kanban status colors match the CLI palette and are non-default
+  - type/priority colors match config-backed palette entries
+  - status/severity/widget helpers apply the expected modifiers and colors
+- Notes for future workers:
+  - `src/tui/theme.rs` is now the intended import surface for view styling; prefer consuming helpers there instead of open-coding colors in view modules.
+  - The adapter in `src/output/mod.rs` is the shared bridge from config color names to ratatui colors, so extending palette support should happen there to keep CLI/TUI output aligned.
+- Verification completed for this theme groundwork step:
+  - `mise run ci`
+  - `mise exec -- ish check`
