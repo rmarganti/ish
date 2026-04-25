@@ -1,13 +1,13 @@
 ---
 # ish-a6jl
 title: 'TUI: core::store load_one(id) helper'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.863678Z
-updated_at: 2026-04-25T03:20:55.863678Z
+updated_at: 2026-04-25T03:49:15.376329Z
 parent: ish-q6t1
 ---
 
@@ -39,3 +39,16 @@ full workspace re-scan.
 - Unit test in `core/store`: `load_one` returns Ok for a valid id, a
   not-found error for an unknown id, and a parse error for a corrupted
   file (write garbage to a tempfile and re-read).
+
+## Implementation notes
+- `src/core/store.rs` now exposes `Store::load_one(&self, id: &str) -> Result<Ish, StoreError>`.
+- `load_one(...)` normalizes short ids with the configured prefix, recursively scans the store root for a matching markdown file, skips hidden directories, and parses the matching file through the existing `load_ish(...)` path.
+- The helper resolves archived issues too, which keeps the targeted reload path flexible for future runtime/editor work.
+- Typed `StoreError::NotFound(...)` and `StoreError::Yaml { .. }` failures are preserved so callers can surface focused reload/parse messages.
+
+## Validation
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- The runtime/editor-specific `load_one(...)` integration is still deferred because `src/tui/runtime.rs` is not implemented yet; once the editor flow lands, prefer the focused reload path first and fall back to full reload only when needed.

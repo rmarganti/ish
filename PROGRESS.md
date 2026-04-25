@@ -70,3 +70,15 @@
 - Verification completed for this theme groundwork step:
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-a6jl` (`TUI: core::store load_one(id) helper`).
+- Confirmed the already-landed targeted store reload helper in `src/core/store.rs` and recorded the task as complete:
+  - `Store::load_one(&self, id: &str)` normalizes short ids using the configured prefix
+  - recursively scans the workspace while skipping hidden directories
+  - resolves archived issue files too, then parses them through the existing `load_ish(...)` path
+  - preserves typed `StoreError::NotFound(...)` / `StoreError::Yaml { .. }` failures for focused caller handling
+- Notes for future workers:
+  - The runtime/editor handoff is still deferred because `src/tui/runtime.rs` is currently a stub; when editor integration lands, prefer `Store::load_one(...)` for post-editor refreshes so parse errors can be surfaced per issue without forcing a full workspace reload.
+  - The helper already accepts both short ids (`abcd`) and prefixed ids (`ish-abcd`), so downstream TUI code should not re-normalize ids differently.
+- Verification completed for this tracking step:
+  - `mise run ci`
+  - `mise exec -- ish check`
