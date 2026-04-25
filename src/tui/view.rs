@@ -13,6 +13,7 @@ mod footer;
 mod help;
 mod issue_detail;
 mod status_line;
+mod status_picker;
 
 pub fn draw(frame: &mut Frame<'_>, model: &Model) {
     let area = frame.area();
@@ -34,13 +35,27 @@ pub fn draw(frame: &mut Frame<'_>, model: &Model) {
 }
 
 fn draw_main(frame: &mut Frame<'_>, area: Rect, model: &Model) {
-    match model.screens.last() {
-        Some(Screen::Board(state)) => board::draw(frame, area, model, state),
-        Some(Screen::IssueDetail(state)) => issue_detail::draw(frame, area, model, state),
-        Some(Screen::StatusPicker(_)) => draw_placeholder(frame, area),
-        Some(Screen::CreateForm(state)) => create_form::draw(frame, area, model, state),
-        Some(Screen::Help(_)) => help::draw(frame, area),
-        None => board::draw(frame, area, model, &BoardState::default()),
+    match model.screens.as_slice() {
+        [
+            ..,
+            Screen::IssueDetail(detail),
+            Screen::StatusPicker(picker),
+        ] => {
+            issue_detail::draw(frame, area, model, detail);
+            status_picker::draw(frame, area, model, picker);
+        }
+        [.., screen] => draw_screen(frame, area, model, screen),
+        [] => board::draw(frame, area, model, &BoardState::default()),
+    }
+}
+
+fn draw_screen(frame: &mut Frame<'_>, area: Rect, model: &Model, screen: &Screen) {
+    match screen {
+        Screen::Board(state) => board::draw(frame, area, model, state),
+        Screen::IssueDetail(state) => issue_detail::draw(frame, area, model, state),
+        Screen::StatusPicker(state) => status_picker::draw(frame, area, model, state),
+        Screen::CreateForm(state) => create_form::draw(frame, area, model, state),
+        Screen::Help(_) => help::draw(frame, area),
     }
 }
 

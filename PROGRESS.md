@@ -250,3 +250,19 @@
   - `mise exec -- cargo test tui::effect_integration -- --nocapture`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-icc4` (`TUI: status picker modal view`).
+- Added the first real status-picker renderer in `src/tui/view/status_picker.rs`:
+  - centered `Set status` modal sized for the PRD's compact overlay
+  - full status option list using shared `theme::status_style(...)`
+  - selected-row highlighting so the existing picker navigation has visible focus
+- Updated `src/tui/view.rs` so a `Screen::StatusPicker(...)` stacked on top of `Screen::IssueDetail(...)` now renders as a true overlay instead of falling back to the placeholder screen.
+- Added focused status-picker view coverage:
+  - option-list assertions proving all statuses render and the selected row gets the expected marker
+  - a `ratatui::backend::TestBackend` smoke test covering detail-screen + modal layering
+- Notes for future workers:
+  - Overlay rendering in `src/tui/view.rs` is currently a targeted detail+status-picker special case; if more modal screens are introduced later, consider extracting a generic layered-screen renderer rather than expanding the match arm list.
+  - The picker view already consumes shared theme styles, so future status-related visual tweaks should happen in `src/tui/theme.rs` instead of inside the modal renderer.
+- Verification completed for this status-picker step:
+  - `mise exec -- cargo test tui::view::status_picker -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
