@@ -1,13 +1,13 @@
 ---
 # ish-yfuo
 title: 'TUI: implement pure update function'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.535076Z
-updated_at: 2026-04-25T03:21:17.720573Z
+updated_at: 2026-04-25T03:59:00.997096Z
 parent: ish-q6t1
 blocked_by:
 - ish-8dtp
@@ -62,3 +62,16 @@ covering all per-screen logic.
 - Unit tests live in the unit-test ish (depends on this); minimum here is
   that everything compiles and a single smoke test runs the empty board
   through a `Tick` without panicking.
+
+
+## Implementation notes
+- Replaced the placeholder `src/tui/update.rs` no-op with the first real pure update dispatcher, including per-screen handlers for board, detail, picker, create-form, and help screens.
+- Added board navigation/state helpers for no-wrap horizontal movement, per-column cursor memory, vertical cursor clamping, and cursor-in-view offset maintenance over the four fixed kanban columns.
+- Wired global message handling for issue reloads, resize-to-small-terminal state, save/editor status messages, and timed status-line expiration/error stickiness.
+- Added create-form submission/cancel behavior and status-picker save behavior that emit the expected TUI effects without touching runtime or store code.
+- Added a minimal `Tick` smoke test so the pure update path is exercised before the dedicated update-test ish lands.
+
+## Validation
+- `mise exec -- cargo test tui::update -- --nocapture`
+- `mise exec -- cargo test`
+- `mise run ci`

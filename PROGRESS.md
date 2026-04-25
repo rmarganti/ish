@@ -96,3 +96,22 @@
   - `mise exec -- cargo test tui::effect -- --nocapture`
   - `mise exec -- ish check`
   - `mise run ci`
+- Completed `ish-yfuo` (`TUI: implement pure update function`).
+- Replaced the `src/tui/update.rs` no-op with the first real pure update layer:
+  - top-level global handling for `Quit`, `Tick`, `Resize`, `IssuesLoaded`, `SaveCompleted`, `SaveFailed`, `EditorReturned`, and `DismissStatusLine`
+  - per-screen update handlers for board, detail, status picker, create form, and help screens
+  - board helpers for no-wrap movement, per-column cursor memory, empty-column handling, and cursor-in-view offset maintenance across the four kanban columns
+  - detail/picker/create-form flows that now emit `OpenEditorForIssue`, `SaveIssue`, and `CreateIssue` effects without coupling update logic to runtime/store I/O
+- Added status-line lifecycle behavior in update:
+  - info/success messages expire on `Tick`
+  - error messages stay sticky and resist immediate overwrite by lower-severity messages
+  - resize handling now toggles `model.term_too_small`
+- Added a minimal smoke test for the pure update path so the empty-board `Tick` flow is covered before the dedicated update test task lands.
+- Notes for future workers:
+  - `src/tui/update.rs` currently uses a small internal `BOARD_VISIBLE_ROWS` constant because terminal dimensions are not yet threaded through the model/runtime; revisit that once the runtime/view tasks land so half-page and scroll behavior can key off real layout information.
+  - `SaveCompleted` currently only sets the transient success message because the effect executor already emits a follow-up full reload message; keep that contract in mind before adding another reload in update/runtime and accidentally doubling store work.
+  - `Msg::SubmitCreateFormWithStatus(...)` is supported in update even though no keymap/view uses it yet, which should make it safe for future modal/submit UX changes without reopening the pure update task.
+- Verification completed for this update step:
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise exec -- cargo test`
+  - `mise run ci`
