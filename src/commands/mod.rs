@@ -7,6 +7,7 @@ pub mod list;
 pub mod prime;
 pub mod roadmap;
 pub mod show;
+pub mod tui;
 pub mod update;
 pub mod version;
 
@@ -19,5 +20,6 @@ pub(crate) use list::list_command;
 pub(crate) use prime::prime_command;
 pub(crate) use roadmap::roadmap_command;
 pub(crate) use show::show_command;
+pub(crate) use tui::tui_command;
 pub(crate) use update::update_command;
 pub(crate) use version::version_output;

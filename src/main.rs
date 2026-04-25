@@ -8,6 +8,7 @@ mod output;
 mod roadmap;
 #[cfg(test)]
 mod test_support;
+mod tui;
 mod version;
 
 use clap::Parser;

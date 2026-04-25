@@ -29,6 +29,7 @@ pub fn run(cli: Cli) -> Result<RunOutcome, AppError> {
         Commands::Roadmap(args) => {
             crate::commands::roadmap_command(args, cli.json).map(success_outcome)
         }
+        Commands::Tui => crate::commands::tui_command(cli.json).map(success_outcome),
         Commands::Version => {
             if cli.json {
                 Ok(success_outcome(Some(
