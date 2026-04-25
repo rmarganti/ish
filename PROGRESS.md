@@ -237,3 +237,16 @@
   - `mise exec -- cargo test`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-rlqk` (`TUI: integration smoke tests for effect executor`).
+- Added store-backed TUI smoke coverage in `src/tui/effect_integration.rs`:
+  - create flow round-trip asserts emitted messages, a follow-up `LoadIssues`, and the persisted markdown contents on disk
+  - save flow asserts the status change is written to disk and yields a new etag after reload
+  - stale-etag conflict flow simulates an external file rewrite + store reload before save and asserts `Msg::SaveFailed(Conflict { .. })`
+- Registered the new smoke test module from `src/tui/mod.rs` under `#[cfg(test)]` so the binary crate can exercise crate-internal TUI/store code without adding a separate `lib.rs` target yet.
+- Notes for future workers:
+  - The PRD suggested `tests/tui_effects.rs`, but this project is still binary-only, so the smoke tests currently live in `src/tui/effect_integration.rs`. If a library target is introduced later, these are good candidates to move into Cargo integration tests.
+  - The conflict smoke test only trips after reloading the store cache following the simulated external disk edit; that matches the current store/executor contract, which detects conflicts against the latest loaded etag rather than re-reading from disk during `update(...)` itself.
+- Verification completed for this executor-smoke-test step:
+  - `mise exec -- cargo test tui::effect_integration -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`

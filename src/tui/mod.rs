@@ -8,6 +8,9 @@ pub mod theme;
 pub mod update;
 pub mod view;
 
+#[cfg(test)]
+mod effect_integration;
+
 #[allow(unused_imports)]
 pub use effect::{Effect, IssueDraft, IssuePatch};
 #[allow(unused_imports)]
