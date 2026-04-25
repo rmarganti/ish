@@ -9,7 +9,7 @@ pub(crate) fn tui_command(json: bool) -> Result<Option<String>, AppError> {
     }
 
     let context = AppContext::load()?;
-    crate::tui::run(&context)?;
+    crate::tui::run(context)?;
     Ok(None)
 }
 

@@ -142,3 +142,18 @@
 - Verification completed for this board-view step:
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-twvz` (`TUI: implement runtime event loop and terminal setup`).
+- Replaced the no-op runtime in `src/tui/runtime.rs` with the first real TUI loop:
+  - sets up a `ratatui` terminal over `crossterm`
+  - uses a `TerminalGuard` Drop restore path for raw mode, alternate screen, and cursor visibility
+  - polls for key events, resize events, and tick timeouts
+  - feeds messages through `tui::update::update(...)` and effects through `tui::effect::execute(...)`
+  - redraws via `tui::view::draw(...)` after queued work is processed
+- Adjusted the TUI entrypoint ownership flow so `src/tui/mod.rs::run(...)` and `src/commands/tui.rs` now pass the loaded `AppContext` by value, allowing runtime code to reuse the already-open mutable store instead of reloading it.
+- Notes for future workers:
+  - `Msg::EditorRequested(...)` is now consumed by the runtime, but editor suspension itself is still intentionally deferred to `ish-1kyq`; for now the runtime converts that marker into a persistent error status instead of attempting a half-implemented suspend/resume flow.
+  - Headless/non-TTY invocations of `ish tui` currently return early with `Ok(())` so command/unit tests stay stable. If later work wants stronger non-interactive behavior, change it deliberately alongside tests rather than assuming raw-mode setup is always available.
+  - The runtime processes follow-up messages with a FIFO `VecDeque`; preserve that ordering unless you intentionally want create/save/editor follow-up behavior to change.
+- Verification completed for this runtime step:
+  - `mise exec -- cargo test`
+  - `mise run ci`

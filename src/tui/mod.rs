@@ -19,6 +19,6 @@ pub use msg::{EditorRequest, FormFieldEdit, Msg, MsgResult, SaveFailure, SaveSuc
 
 use crate::app::{AppContext, AppError};
 
-pub fn run(ctx: &AppContext) -> Result<(), AppError> {
+pub fn run(ctx: AppContext) -> Result<(), AppError> {
     runtime::run(ctx)
 }

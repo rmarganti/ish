@@ -1,13 +1,13 @@
 ---
 # ish-twvz
 title: 'TUI: implement runtime event loop and terminal setup'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.596917Z
-updated_at: 2026-04-25T03:21:17.740712Z
+updated_at: 2026-04-25T04:13:55.250957Z
 parent: ish-q6t1
 blocked_by:
 - ish-yfuo
@@ -51,3 +51,15 @@ dispatch, effect execution, redraw, and tick generation.
 - Triggering a panic in `update` (temporary `panic!`) leaves the
   terminal usable thanks to the Drop guard. Remove the panic before
   finishing.
+
+
+## Implementation notes
+- Replaced the no-op `src/tui/runtime.rs` stub with the first real terminal runtime: it now initializes a `ratatui`/`crossterm` terminal, enters raw mode + the alternate screen behind a `TerminalGuard`, polls keys/resizes/ticks, redraws via `view::draw(...)`, and exits cleanly when `model.quit` is set.
+- The runtime now owns the FIFO message/effect loop described in the PRD: startup enqueues `Resize` + `Effect::LoadIssues`, key events flow through `keymap::map_key(...)`, messages are reduced through `tui::update::update(...)`, and returned effects are executed via `tui::effect::execute(...)` before their follow-up messages are processed.
+- `Msg::EditorRequested(...)` is now handled explicitly in the runtime so editor work can land separately without blocking the event loop; until `ish-1kyq` lands, the runtime converts that marker into a persistent error status instead of trying to suspend the terminal prematurely.
+- `ish tui` now takes ownership of `AppContext` so the runtime can reuse the already-loaded mutable store handle directly instead of reloading workspace state through a second code path.
+- Headless/non-TTY invocations now return `Ok(())` without attempting raw-mode terminal setup, which keeps command/unit tests stable while preserving the real interactive flow for actual TTY sessions.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise run ci`
