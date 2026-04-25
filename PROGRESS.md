@@ -220,3 +220,20 @@
   - `mise exec -- cargo test`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-wka9` (`TUI: footer, status line, and help overlay`).
+- Added shared chrome/rendering helpers under `src/tui/view/`:
+  - `footer.rs` for persistent per-screen keybind hints
+  - `status_line.rs` for severity-colored transient/sticky messages
+  - `help.rs` for the full help overlay grouped by board/detail/picker/create-form/global bindings
+- Updated `src/tui/view.rs` to reserve bottom rows for the shared status line + footer across the whole TUI instead of embedding footer chrome inside individual screens.
+- Simplified screen renderers to use the shared footer:
+  - `src/tui/view/issue_detail.rs` no longer renders its own local key block
+  - `src/tui/view/create_form.rs` no longer duplicates footer hints inside the form body
+- Added focused coverage for the new shared view pieces (footer/help/status-line unit tests) and kept the existing create/detail render smoke tests green after the layout change.
+- Notes for future workers:
+  - `Screen::StatusPicker(...)` still falls back to the placeholder renderer until `ish-icc4` lands; the shared footer/help/status-line layout is already in place for that modal to plug into.
+  - If later view work adds more overlays, prefer routing shared key hints through `src/tui/view/footer.rs` rather than embedding ad hoc footer rows inside screen-specific widgets.
+- Verification completed for this shared-chrome step:
+  - `mise exec -- cargo test`
+  - `mise run ci`
+  - `mise exec -- ish check`

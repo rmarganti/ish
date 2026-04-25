@@ -73,8 +73,6 @@ fn form_lines(model: &Model, state: &CreateFormState) -> Vec<Line<'static>> {
             ]),
             state.focused_field == 4,
         ),
-        Line::default(),
-        footer_line(),
     ]
 }
 
@@ -114,19 +112,6 @@ fn cycle_line(value: &str, value_style: Style) -> Line<'static> {
         Span::styled("< ", Style::default().add_modifier(Modifier::DIM)),
         Span::styled(value.to_string(), value_style),
         Span::styled(" >", Style::default().add_modifier(Modifier::DIM)),
-    ])
-}
-
-fn footer_line() -> Line<'static> {
-    Line::from(vec![
-        Span::styled("Tab/Shift-Tab", theme::footer_key()),
-        Span::styled(" field  ", theme::footer_desc()),
-        Span::styled("Ctrl-s", theme::footer_key()),
-        Span::styled(" save  ", theme::footer_desc()),
-        Span::styled("Ctrl-e", theme::footer_key()),
-        Span::styled(" save+edit  ", theme::footer_desc()),
-        Span::styled("Esc", theme::footer_key()),
-        Span::styled(" cancel", theme::footer_desc()),
     ])
 }
 
@@ -187,7 +172,7 @@ mod tests {
         assert!(rendered[0].contains("(required)"));
         assert!(rendered[1].contains("< task >"));
         assert!(rendered[2].contains("< normal >"));
-        assert!(rendered[7].contains("Ctrl-e"));
+        assert!(rendered[5].contains("Create issue"));
     }
 
     #[test]

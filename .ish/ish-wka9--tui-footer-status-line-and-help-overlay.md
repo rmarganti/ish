@@ -1,13 +1,13 @@
 ---
 # ish-wka9
 title: 'TUI: footer, status line, and help overlay'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.719797Z
-updated_at: 2026-04-25T03:21:17.788057Z
+updated_at: 2026-04-25T04:31:39.145636Z
 parent: ish-q6t1
 blocked_by:
 - ish-8dtp
@@ -44,3 +44,34 @@ the `?` help overlay.
   auto-dismisses; trigger a save conflict (e.g. by editing an ish from
   another shell mid-modal) and observe the sticky red error; press `?`
   to open the overlay and any key to close it.
+
+## Implementation notes
+- Added shared view modules under `src/tui/view/`:
+  - `footer.rs` renders a single-line persistent footer with screen-specific
+    key hints.
+  - `status_line.rs` renders the severity-colored transient/sticky status
+    message row from `model.status_line`.
+  - `help.rs` renders the help overlay with grouped bindings for global,
+    board, detail, status-picker, and create-form contexts.
+- Updated `src/tui/view.rs` to reserve bottom layout rows for the shared
+  status line + footer and dispatch `Screen::Help(...)` through the new help
+  overlay renderer.
+- Removed duplicated footer chrome from `src/tui/view/issue_detail.rs` and
+  `src/tui/view/create_form.rs` so screen-specific views only render their
+  main content.
+- Added focused unit coverage for footer/help/status-line rendering and kept
+  the existing create-form/detail render smoke tests passing after the shared
+  layout change.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- `Screen::StatusPicker(...)` still uses the placeholder main-area renderer
+  until `ish-icc4` lands, but it already benefits from the shared footer and
+  status-line layout introduced here.
+- Future overlays/screens should prefer updating `src/tui/view/footer.rs`
+  for key-hint chrome instead of embedding footer rows inside individual view
+  modules.

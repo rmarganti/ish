@@ -9,8 +9,6 @@ use ratatui::prelude::{Line, Span};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-const FOOTER_HEIGHT: u16 = 3;
-
 pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &DetailState) {
     let Some(issue) = model.issues.iter().find(|issue| issue.id == state.id) else {
         draw_missing_issue(frame, area, &state.id);
@@ -19,12 +17,8 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &DetailStat
 
     let metadata_lines = metadata_lines(model, issue);
     let metadata_height = metadata_lines.len().saturating_add(2) as u16;
-    let sections = Layout::vertical([
-        Constraint::Length(metadata_height),
-        Constraint::Min(1),
-        Constraint::Length(FOOTER_HEIGHT),
-    ])
-    .split(area);
+    let sections =
+        Layout::vertical([Constraint::Length(metadata_height), Constraint::Min(1)]).split(area);
 
     frame.render_widget(
         Paragraph::new(metadata_lines)
@@ -39,13 +33,6 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &DetailStat
             .scroll((state.scroll, 0))
             .wrap(Wrap { trim: false }),
         sections[1],
-    );
-
-    frame.render_widget(
-        Paragraph::new(detail_footer())
-            .block(Block::default().borders(Borders::ALL).title(" Keys "))
-            .wrap(Wrap { trim: false }),
-        sections[2],
     );
 }
 
@@ -158,17 +145,6 @@ fn body_lines(issue: &Ish) -> Vec<Line<'static>> {
             Line::from(line.to_string())
         })
         .collect()
-}
-
-fn detail_footer() -> Line<'static> {
-    Line::from(vec![
-        Span::styled("e", theme::footer_key()),
-        Span::styled(" edit  ", theme::footer_desc()),
-        Span::styled("s", theme::footer_key()),
-        Span::styled(" status  ", theme::footer_desc()),
-        Span::styled("q", theme::footer_key()),
-        Span::styled(" back", theme::footer_desc()),
-    ])
 }
 
 fn meta_label(label: &str) -> Span<'static> {

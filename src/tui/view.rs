@@ -2,23 +2,44 @@
 
 use crate::tui::{BoardState, IshType, Model, Priority, Screen, Status, theme};
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::prelude::{Line, Span};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 mod board;
 mod create_form;
+mod footer;
+mod help;
 mod issue_detail;
+mod status_line;
 
 pub fn draw(frame: &mut Frame<'_>, model: &Model) {
     let area = frame.area();
+    let status_height = if model.status_line.is_some() { 1 } else { 0 };
+    let sections = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(status_height),
+        Constraint::Length(1),
+    ])
+    .split(area);
 
+    draw_main(frame, sections[0], model);
+
+    if status_height > 0 {
+        status_line::draw(frame, sections[1], model);
+    }
+
+    footer::draw(frame, sections[2], model);
+}
+
+fn draw_main(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     match model.screens.last() {
         Some(Screen::Board(state)) => board::draw(frame, area, model, state),
         Some(Screen::IssueDetail(state)) => issue_detail::draw(frame, area, model, state),
+        Some(Screen::StatusPicker(_)) => draw_placeholder(frame, area),
         Some(Screen::CreateForm(state)) => create_form::draw(frame, area, model, state),
-        Some(_) => draw_placeholder(frame, area),
+        Some(Screen::Help(_)) => help::draw(frame, area),
         None => board::draw(frame, area, model, &BoardState::default()),
     }
 }
