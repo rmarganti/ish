@@ -131,3 +131,14 @@
   - `mise exec -- cargo test`
   - `mise exec -- ish check`
   - `mise run ci`
+- Completed `ish-4un1` (`TUI: board view (4-column kanban)`).
+- Replaced the TUI view stub with the first real board renderer:
+  - `src/tui/view.rs` now dispatches board rendering and hosts shared formatting helpers for status labels, truncation, and card metadata lines.
+  - `src/tui/view/board.rs` now renders four equal-width kanban columns, header counts, fixed-height bordered cards, and dim `(empty)` placeholders.
+  - Board rendering slices each status bucket using `BoardState::column_offsets[...]`, so future runtime wiring can immediately benefit from the pure update layer's cursor/scroll bookkeeping.
+- Notes for future workers:
+  - `src/tui/runtime.rs` is still a stub, so `ish tui` does not invoke the new renderer yet; the runtime/event-loop task should call `tui::view::draw(...)` once terminal setup lands.
+  - Shared view helpers now live in `src/tui/view.rs`; prefer reusing them in detail/create/help screens instead of duplicating status/type/priority formatting logic.
+- Verification completed for this board-view step:
+  - `mise run ci`
+  - `mise exec -- ish check`

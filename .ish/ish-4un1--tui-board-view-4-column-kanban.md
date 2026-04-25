@@ -1,13 +1,13 @@
 ---
 # ish-4un1
 title: 'TUI: board view (4-column kanban)'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.637162Z
-updated_at: 2026-04-25T03:21:17.753324Z
+updated_at: 2026-04-25T04:07:43.033306Z
 parent: ish-q6t1
 blocked_by:
 - ish-8dtp
@@ -42,3 +42,18 @@ card list, fixed-height cards.
 - Manual smoke: `cargo run -- tui` shows current workspace ishes bucketed
   correctly; navigation moves the highlight; empty columns show the
   placeholder.
+
+
+## Implementation notes
+- Replaced the TUI view stub with the first real top-level `src/tui/view.rs` dispatcher and added `src/tui/view/board.rs` for the kanban board renderer.
+- The board view now renders four equal-width workflow columns, reuses `Model::bucket_for_status(...)` for sorting/filtering, shows per-column counts, and respects `BoardState::column_offsets[...]` when slicing visible cards.
+- Cards render as fixed-height bordered widgets with a truncated title line plus metadata line (`id`, priority, type, first tag); empty columns now show a dim `(empty)` placeholder.
+- Added small view helper tests for status-header labels and ellipsis truncation so future view work can extend the shared formatter helpers safely.
+
+## Validation
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- `src/tui/runtime.rs` is still a stub, so the new board renderer is not yet exercised by `ish tui`; the next runtime/view integration task should call `tui::view::draw(...)` from the event loop before relying on manual smoke behavior.
+- Shared formatting helpers now live in `src/tui/view.rs`; future detail/create/help view tasks can reuse them instead of reimplementing ish-type/priority/status conversions.
