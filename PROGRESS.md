@@ -292,3 +292,18 @@
   - `mise exec -- cargo test terminal_too_small -- --nocapture`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-qevm` (`TUI: unit tests for keymap`).
+- Expanded `src/tui/keymap.rs` coverage with per-screen binding tests for:
+  - board navigation, refresh/create/open, help, and quit bindings
+  - detail scrolling/edit/status/back bindings
+  - status-picker navigation/submit/cancel bindings
+  - create-form focus, submit, selector cycling, text-edit, help, and quit bindings
+  - help-overlay key handling plus a cross-screen leak test for create-form-only shortcuts
+- Notes for future workers:
+  - The keymap tests intentionally treat the help overlay as a special case because help consumes any non-global key as `PopScreen`; if the overlay contract changes later, update the leak assertions deliberately rather than expecting help to behave like the other screens.
+  - Create-form keymap coverage is split by `focused_field`, so if future UX work adds more field-specific bindings, extend the matching focused-field test cases instead of collapsing them into one generic create-form screen fixture.
+- Verification completed for this keymap-test step:
+  - `mise exec -- cargo test tui::keymap -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
+- Epic status: all planned TUI kanban child ishes from `.local/prds/1777086527-tui-kanban.md` are now complete, and the parent epic `ish-q6t1` has been marked completed after a final green `mise run ci` pass.

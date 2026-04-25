@@ -1,7 +1,7 @@
 ---
 # ish-q6t1
 title: TUI Kanban board (ish tui)
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
@@ -42,3 +42,12 @@ change.
 - Saves through the TUI are visible via `ish list` immediately and vice
   versa, and ETag conflicts surface as user-visible errors.
 - `mise run ci` is green.
+
+## Implementation notes
+- Landed the full `ish tui` stack described by the PRD: CLI entrypoint, shared Elm-style TUI model/message/effect architecture, runtime loop, board/detail/create/help/status-picker screens, theme reuse, editor integration, and store-backed optimistic-concurrency flows.
+- Added both pure unit coverage (`update`, `keymap`, model/theme/view helpers) and store-backed TUI smoke tests so the new interface is exercised without depending on interactive terminal automation.
+- `PROGRESS.md` now captures per-task notes for the entire kanban epic, including the important runtime/editor ordering contracts and the help-overlay/keymap testing caveats.
+
+## Validation
+- `mise exec -- ish check`
+- `mise run ci`
