@@ -82,3 +82,17 @@
 - Verification completed for this tracking step:
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-778a` (`TUI: implement effect executor over core::store`).
+- Replaced the TUI effect stub in `src/tui/effect.rs` with the first real store-backed executor:
+  - `execute(effect, &mut Store) -> Vec<Msg>` now handles `LoadIssues`, `SaveIssue`, `CreateIssue`, `OpenEditorForIssue`, and `Quit`
+  - successful save/create flows emit `SaveCompleted(...)` and immediately follow with a full reload via `Msg::IssuesLoaded(...)`
+  - stale ETags map to `Msg::SaveFailed(Conflict { id })`
+  - editor launches remain runtime-owned; the executor emits `Msg::EditorRequested(...)` as a marker instead of touching terminal state
+- Added focused executor tests covering load, save+reload, conflict handling, create+editor follow-up, and runtime marker messages.
+- Notes for future workers:
+  - The executor intentionally takes `&mut Store` rather than `&Store` because `core::store` mutates its in-memory cache during `load`, `create`, and `update`; future runtime code should thread its owned store handle through effect execution mutably.
+  - Current message ordering is FIFO and deliberate: successful create/save returns `SaveCompleted` before the reload message, and create-with-editor appends `EditorRequested` after that reload. If runtime queue handling depends on a different order, change it explicitly rather than assuming.
+- Verification completed for this executor step:
+  - `mise exec -- cargo test tui::effect -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
