@@ -43,6 +43,8 @@ pub enum Commands {
     Prime,
     /// Generate a roadmap from milestone and epic hierarchy.
     Roadmap(RoadmapArgs),
+    /// Launch the terminal UI.
+    Tui,
     /// Print the current ish version.
     Version,
 }

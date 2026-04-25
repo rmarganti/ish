@@ -1,13 +1,13 @@
 ---
 # ish-loy6
 title: 'TUI: scaffolding, deps, and ish tui CLI entry'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.487431Z
-updated_at: 2026-04-25T03:20:55.487431Z
+updated_at: 2026-04-25T03:31:25.063963Z
 parent: ish-q6t1
 ---
 
@@ -40,3 +40,16 @@ Lay the foundation for the TUI feature: add dependencies, create the
 - `mise run ci` passes.
 - `mise exec -- cargo run -- tui` exits 0 silently.
 - `mise exec -- cargo run -- --help` lists `tui` as a subcommand.
+
+
+## Implementation notes
+- Added `ratatui` and `crossterm` to `Cargo.toml` and refreshed `Cargo.lock`.
+- Added the `tui` clap subcommand and wired it through `src/cli/mod.rs`, `src/commands/tui.rs`, `src/commands/mod.rs`, `src/app/mod.rs`, and `src/main.rs`.
+- Added the initial `src/tui/` module skeleton (`model`, `msg`, `keymap`, `update`, `effect`, `runtime`, `view`, `theme`) with `tui::run` delegating to a no-op `runtime::run`.
+- Added command tests covering `ish tui` JSON rejection and the happy-path no-op invocation in a real ish workspace.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise exec -- cargo run -- tui`
+- `mise exec -- cargo run -- --help | rg "\btui\b"`
+- `mise run ci`
