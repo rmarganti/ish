@@ -44,6 +44,8 @@ pub enum Msg {
     OpenCreateForm,
     OpenHelp,
     PopScreen,
+    ConfirmDiscardCreateForm,
+    CancelDiscardCreateForm,
     SubmitStatusChange,
     SubmitCreateForm,
     SubmitCreateAndEdit,

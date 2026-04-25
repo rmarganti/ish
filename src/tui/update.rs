@@ -279,7 +279,8 @@ fn update_create_form(
             return (model, effects);
         }
         Msg::PopScreen => {
-            if state.pending_cancel || !create_form_dirty(&state) {
+            if !create_form_dirty(&state) {
+                clear_status_line(&mut model);
                 pop_screen(&mut model);
                 return (model, effects);
             }
@@ -287,9 +288,18 @@ fn update_create_form(
             state.pending_cancel = true;
             set_status_line(
                 &mut model,
-                "Press Esc again to discard create form".to_string(),
+                "Discard new issue? y/n".to_string(),
                 Severity::Info,
             );
+        }
+        Msg::ConfirmDiscardCreateForm => {
+            clear_status_line(&mut model);
+            pop_screen(&mut model);
+            return (model, effects);
+        }
+        Msg::CancelDiscardCreateForm => {
+            state.pending_cancel = false;
+            clear_status_line(&mut model);
         }
         _ => {}
     }
@@ -921,6 +931,26 @@ mod tests {
             }
             other => panic!("expected create form, got {other:?}"),
         }
+        assert_eq!(
+            model.status_line,
+            Some(StatusLine {
+                text: "Discard new issue? y/n".to_string(),
+                severity: Severity::Info,
+            })
+        );
+
+        let (model, effects) = update(model, Msg::CancelDiscardCreateForm);
+        assert!(effects.is_empty());
+        assert!(model.status_line.is_none());
+        match top_screen(&model) {
+            Screen::CreateForm(state) => assert!(!state.pending_cancel),
+            other => panic!("expected create form, got {other:?}"),
+        }
+
+        let (model, effects) = update(model, Msg::ConfirmDiscardCreateForm);
+        assert!(effects.is_empty());
+        assert!(model.status_line.is_none());
+        assert!(matches!(top_screen(&model), Screen::Board(_)));
     }
 
     #[test]

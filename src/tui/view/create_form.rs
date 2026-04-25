@@ -127,11 +127,13 @@ fn draw_pending_cancel_modal(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(Clear, modal_area);
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from("Discard new issue? y/n"),
-            Line::from(Span::styled(
-                "Esc again discards the form in the current update flow.",
-                Style::default().add_modifier(Modifier::DIM),
-            )),
+            Line::from("Discard new issue?"),
+            Line::from(vec![
+                Span::styled("y", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" discard  "),
+                Span::styled("n", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" keep editing"),
+            ]),
         ])
         .block(Block::default().borders(Borders::ALL).title(" Confirm "))
         .wrap(Wrap { trim: true }),
@@ -151,7 +153,7 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{cycle_line, form_lines};
+    use super::{cycle_line, draw_pending_cancel_modal, form_lines};
     use crate::test_support::tui::model_with_board;
     use crate::tui::{CreateFormState, IshType, Priority, Screen, view};
     use ratatui::Terminal;
@@ -184,6 +186,28 @@ mod tests {
 
         assert_eq!(line.to_string(), "< feature >");
         assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn discard_modal_shows_literal_y_n_actions() {
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| draw_pending_cancel_modal(frame, frame.area()))
+            .expect("discard modal should render");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(rendered.contains("Discard new issue?"));
+        assert!(rendered.contains("y discard"));
+        assert!(rendered.contains("n keep editing"));
     }
 
     #[test]

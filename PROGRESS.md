@@ -307,3 +307,18 @@
   - `mise exec -- ish check`
   - `mise run ci`
 - Epic status: all planned TUI kanban child ishes from `.local/prds/1777086527-tui-kanban.md` are now complete, and the parent epic `ish-q6t1` has been marked completed after a final green `mise run ci` pass.
+- Completed `ish--u501` (`TUI: create-form discard modal uses explicit y/n confirmation`).
+- Closed a small post-epic PRD mismatch in the create-form cancel flow:
+  - `src/tui/keymap.rs` now treats `CreateFormState::pending_cancel` as a true modal state and maps `y`/`Y` to discard, `n`/`N`/`Esc` to keep editing, while suppressing normal field-edit bindings underneath the modal.
+  - `src/tui/update.rs` now uses explicit discard-confirmation messages so the form only closes on affirmative confirmation and clears the prompt/status line cleanly when the user keeps editing.
+  - `src/tui/view/create_form.rs`, `src/tui/view/footer.rs`, and `src/tui/view/help.rs` now consistently describe the live `y`/`n` discard UX instead of the older second-`Esc` behavior.
+- Notes for future workers:
+  - The discard-confirmation modal is now backed by dedicated `Msg::ConfirmDiscardCreateForm` / `Msg::CancelDiscardCreateForm` variants; prefer extending that explicit modal contract instead of reintroducing overloaded `PopScreen` behavior.
+  - While `pending_cancel` is set, create-form key handling intentionally suppresses normal editing/navigation keys so the confirmation prompt behaves like a real modal; preserve that if future form features add more shortcuts.
+- Verification completed for this discard-confirmation follow-up:
+  - `mise exec -- cargo test tui::keymap -- --nocapture`
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise exec -- cargo test tui::view::create_form -- --nocapture`
+  - `mise exec -- cargo test tui::view::footer -- --nocapture`
+  - `mise exec -- cargo test tui::view::help -- --nocapture`
+  - `mise run ci`

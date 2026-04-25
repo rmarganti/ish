@@ -18,7 +18,7 @@ pub fn map_key(screen: &Screen, key: KeyEvent) -> Option<Msg> {
         Screen::Board(_) => map_board_key(key),
         Screen::IssueDetail(_) => map_detail_key(key),
         Screen::StatusPicker(_) => map_picker_key(key),
-        Screen::CreateForm(state) => map_create_form_key(state.focused_field, key),
+        Screen::CreateForm(state) => map_create_form_key(state, key),
         Screen::Help(_) => Some(Msg::PopScreen),
     }
 }
@@ -227,7 +227,39 @@ fn map_picker_key(key: KeyEvent) -> Option<Msg> {
     }
 }
 
-fn map_create_form_key(focused_field: usize, key: KeyEvent) -> Option<Msg> {
+fn map_create_form_key(state: &crate::tui::CreateFormState, key: KeyEvent) -> Option<Msg> {
+    if state.pending_cancel {
+        return match key {
+            KeyEvent {
+                code: KeyCode::Char('y'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('Y'),
+                modifiers: KeyModifiers::SHIFT,
+                ..
+            } => Some(Msg::ConfirmDiscardCreateForm),
+            KeyEvent {
+                code: KeyCode::Char('n'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('N'),
+                modifiers: KeyModifiers::SHIFT,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Esc,
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(Msg::CancelDiscardCreateForm),
+            _ => None,
+        };
+    }
+
+    let focused_field = state.focused_field;
     match key {
         KeyEvent {
             code: KeyCode::Tab,
@@ -363,8 +395,16 @@ mod tests {
     }
 
     fn create_form_screen(focused_field: usize) -> Screen {
+        create_form_screen_with_pending_cancel(focused_field, false)
+    }
+
+    fn create_form_screen_with_pending_cancel(
+        focused_field: usize,
+        pending_cancel: bool,
+    ) -> Screen {
         let mut state = CreateFormState::new(&Config::default());
         state.focused_field = focused_field;
+        state.pending_cancel = pending_cancel;
         Screen::CreateForm(state)
     }
 
@@ -729,6 +769,56 @@ mod tests {
                     &create_form_screen(0),
                     KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
                 ),
+                None
+            );
+        }
+
+        #[test]
+        fn maps_discard_confirmation_bindings_when_modal_is_open() {
+            let screen = create_form_screen_with_pending_cancel(0, true);
+            assert_bindings(
+                &screen,
+                &[
+                    (
+                        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+                        Msg::ConfirmDiscardCreateForm,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT),
+                        Msg::ConfirmDiscardCreateForm,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+                        Msg::CancelDiscardCreateForm,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+                        Msg::CancelDiscardCreateForm,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                        Msg::CancelDiscardCreateForm,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+                        Msg::OpenHelp,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                        Msg::Quit,
+                    ),
+                ],
+            );
+
+            assert_eq!(
+                map_key(
+                    &screen,
+                    KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)
+                ),
+                None
+            );
+            assert_eq!(
+                map_key(&screen, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
                 None
             );
         }

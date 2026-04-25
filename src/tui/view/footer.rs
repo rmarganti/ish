@@ -37,6 +37,11 @@ fn footer_line(model: &Model) -> Line<'static> {
             ("esc", "cancel"),
             ("?", "help"),
         ]),
+        Some(Screen::CreateForm(state)) if state.pending_cancel => hints(&[
+            ("y", "discard"),
+            ("n", "keep editing"),
+            ("esc", "keep editing"),
+        ]),
         Some(Screen::CreateForm(_)) => hints(&[
             ("tab", "next field"),
             ("S-tab", "prev field"),
@@ -72,7 +77,7 @@ fn hints(items: &[(&str, &str)]) -> Line<'static> {
 mod tests {
     use super::footer_line;
     use crate::test_support::tui::model_with_board;
-    use crate::tui::{HelpState, Screen};
+    use crate::tui::{CreateFormState, HelpState, Screen};
 
     #[test]
     fn footer_hints_follow_active_screen() {
@@ -81,5 +86,18 @@ mod tests {
 
         model.screens.push(Screen::Help(HelpState));
         assert_eq!(footer_line(&model).to_string(), "any key close");
+    }
+
+    #[test]
+    fn discard_confirmation_footer_prefers_y_n_actions() {
+        let mut model = model_with_board(vec![]);
+        let mut state = CreateFormState::new(&model.config);
+        state.pending_cancel = true;
+        model.screens.push(Screen::CreateForm(state));
+
+        assert_eq!(
+            footer_line(&model).to_string(),
+            "y discard  n keep editing  esc keep editing"
+        );
     }
 }

@@ -56,7 +56,8 @@ fn help_lines() -> Vec<Line<'static>> {
         binding_line("h / l, ← / →", "cycle type / priority"),
         binding_line("Ctrl-s", "create issue"),
         binding_line("Ctrl-e", "create issue and edit"),
-        binding_line("Esc", "cancel or confirm discard"),
+        binding_line("Esc", "open discard confirm"),
+        binding_line("y / n", "discard / keep editing"),
         Line::default(),
         Line::from(vec![
             Span::styled("Tip:", theme::footer_key()),
