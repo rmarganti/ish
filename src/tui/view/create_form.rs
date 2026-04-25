@@ -1,0 +1,222 @@
+#![allow(dead_code)]
+
+use crate::tui::{CreateFormState, Model, theme};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::prelude::{Line, Span};
+use ratatui::style::{Modifier, Style};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+
+const PANEL_WIDTH: u16 = 72;
+const PANEL_HEIGHT: u16 = 12;
+const CANCEL_MODAL_WIDTH: u16 = 34;
+const CANCEL_MODAL_HEIGHT: u16 = 5;
+
+pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &CreateFormState) {
+    let panel_area = centered_rect(
+        PANEL_WIDTH.min(area.width.saturating_sub(2)).max(24),
+        PANEL_HEIGHT.min(area.height.saturating_sub(2)).max(8),
+        area,
+    );
+
+    frame.render_widget(Clear, panel_area);
+    frame.render_widget(
+        Paragraph::new(form_lines(model, state))
+            .block(Block::default().borders(Borders::ALL).title(" New issue "))
+            .wrap(Wrap { trim: false }),
+        panel_area,
+    );
+
+    if state.pending_cancel {
+        draw_pending_cancel_modal(frame, panel_area);
+    }
+}
+
+fn form_lines(model: &Model, state: &CreateFormState) -> Vec<Line<'static>> {
+    vec![
+        form_row(
+            "Title",
+            Line::from(field_text(&state.title, "(required)")),
+            state.focused_field == 0,
+        ),
+        form_row(
+            "Type",
+            cycle_line(
+                state.ish_type.as_str(),
+                theme::type_style(&model.config, state.ish_type),
+            ),
+            state.focused_field == 1,
+        ),
+        form_row(
+            "Priority",
+            cycle_line(
+                state.priority.as_str(),
+                theme::priority_style(&model.config, state.priority),
+            ),
+            state.focused_field == 2,
+        ),
+        form_row(
+            "Tags",
+            Line::from(field_text(&state.tags, "comma,separated,tags")),
+            state.focused_field == 3,
+        ),
+        Line::default(),
+        form_row(
+            "Save",
+            Line::from(vec![
+                Span::styled("[", Style::default().add_modifier(Modifier::DIM)),
+                Span::styled(
+                    " Create issue ",
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("]", Style::default().add_modifier(Modifier::DIM)),
+            ]),
+            state.focused_field == 4,
+        ),
+        Line::default(),
+        footer_line(),
+    ]
+}
+
+fn form_row(label: &str, value: Line<'static>, focused: bool) -> Line<'static> {
+    let mut spans = vec![Span::styled(
+        format!("{label:<10} "),
+        Style::default()
+            .fg(ratatui::style::Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    )];
+    spans.extend(value.spans);
+
+    let mut line = Line::from(spans);
+    if focused {
+        line = line.patch_style(
+            Style::default()
+                .bg(ratatui::style::Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    line
+}
+
+fn field_text(value: &str, placeholder: &str) -> Vec<Span<'static>> {
+    if value.is_empty() {
+        vec![Span::styled(
+            placeholder.to_string(),
+            Style::default().add_modifier(Modifier::DIM),
+        )]
+    } else {
+        vec![Span::raw(value.to_string())]
+    }
+}
+
+fn cycle_line(value: &str, value_style: Style) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("< ", Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(value.to_string(), value_style),
+        Span::styled(" >", Style::default().add_modifier(Modifier::DIM)),
+    ])
+}
+
+fn footer_line() -> Line<'static> {
+    Line::from(vec![
+        Span::styled("Tab/Shift-Tab", theme::footer_key()),
+        Span::styled(" field  ", theme::footer_desc()),
+        Span::styled("Ctrl-s", theme::footer_key()),
+        Span::styled(" save  ", theme::footer_desc()),
+        Span::styled("Ctrl-e", theme::footer_key()),
+        Span::styled(" save+edit  ", theme::footer_desc()),
+        Span::styled("Esc", theme::footer_key()),
+        Span::styled(" cancel", theme::footer_desc()),
+    ])
+}
+
+fn draw_pending_cancel_modal(frame: &mut Frame<'_>, area: Rect) {
+    let modal_area = centered_rect(
+        CANCEL_MODAL_WIDTH.min(area.width.saturating_sub(2)).max(20),
+        CANCEL_MODAL_HEIGHT
+            .min(area.height.saturating_sub(2))
+            .max(5),
+        area,
+    );
+
+    frame.render_widget(Clear, modal_area);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from("Discard new issue? y/n"),
+            Line::from(Span::styled(
+                "Esc again discards the form in the current update flow.",
+                Style::default().add_modifier(Modifier::DIM),
+            )),
+        ])
+        .block(Block::default().borders(Borders::ALL).title(" Confirm "))
+        .wrap(Wrap { trim: true }),
+        modal_area,
+    );
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let [vertical] = Layout::vertical([Constraint::Length(height)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [horizontal] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(vertical);
+    horizontal
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cycle_line, form_lines};
+    use crate::test_support::tui::model_with_board;
+    use crate::tui::{CreateFormState, IshType, Priority, Screen, view};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
+
+    #[test]
+    fn form_lines_show_placeholders_and_cycle_widgets() {
+        let model = model_with_board(vec![]);
+        let state = CreateFormState::new(&model.config);
+
+        let rendered = form_lines(&model, &state)
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(rendered[0].contains("Title"));
+        assert!(rendered[0].contains("(required)"));
+        assert!(rendered[1].contains("< task >"));
+        assert!(rendered[2].contains("< normal >"));
+        assert!(rendered[7].contains("Ctrl-e"));
+    }
+
+    #[test]
+    fn cycle_lines_keep_value_in_the_middle() {
+        let line = cycle_line(
+            IshType::Feature.as_str(),
+            crate::tui::theme::type_style(&crate::config::Config::default(), IshType::Feature),
+        );
+
+        assert_eq!(line.to_string(), "< feature >");
+        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn create_form_screen_renders_registered_view_without_panicking() {
+        let mut model = model_with_board(vec![]);
+        let mut state = CreateFormState::new(&model.config);
+        state.title = "Ship create form".to_string();
+        state.ish_type = IshType::Bug;
+        state.priority = Priority::High;
+        state.tags = "tui,kanban".to_string();
+        state.pending_cancel = true;
+        model.screens = vec![Screen::CreateForm(state)];
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| view::draw(frame, &model))
+            .expect("create form should render");
+    }
+}

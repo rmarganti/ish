@@ -8,6 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 mod board;
+mod create_form;
 mod issue_detail;
 
 pub fn draw(frame: &mut Frame<'_>, model: &Model) {
@@ -16,6 +17,7 @@ pub fn draw(frame: &mut Frame<'_>, model: &Model) {
     match model.screens.last() {
         Some(Screen::Board(state)) => board::draw(frame, area, model, state),
         Some(Screen::IssueDetail(state)) => issue_detail::draw(frame, area, model, state),
+        Some(Screen::CreateForm(state)) => create_form::draw(frame, area, model, state),
         Some(_) => draw_placeholder(frame, area),
         None => board::draw(frame, area, model, &BoardState::default()),
     }

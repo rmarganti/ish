@@ -180,3 +180,21 @@
   - `mise exec -- cargo test tui::view::issue_detail -- --nocapture`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-jeza` (`TUI: create form view`).
+- Added a dedicated create-form renderer in `src/tui/view/create_form.rs` and wired `Screen::CreateForm(...)` into `src/tui/view.rs`, so `c` from the board now lands on a real centered form instead of the generic placeholder screen.
+- The create form now renders:
+  - labeled rows for title, type, priority, tags, and save
+  - focused-row highlighting for keyboard navigation context
+  - `< value >` cycle widgets for type/priority using the shared theme styles
+  - footer hints for `Tab/Shift-Tab`, `Ctrl-s`, `Ctrl-e`, and `Esc`
+  - a discard-confirmation modal whenever `CreateFormState::pending_cancel` is set
+- Added focused create-form view coverage:
+  - placeholder/cycle-widget formatting assertions
+  - a `ratatui::backend::TestBackend` smoke test proving the registered create-form screen renders without panicking
+- Notes for future workers:
+  - The discard-confirmation modal is now visible, but the current interaction still confirms discard via the existing second-`Esc` update flow; if the UX is later tightened to literal `y`/`n` confirmation, wire that through `src/tui/keymap.rs` and `src/tui/update.rs` rather than duplicating modal state in the view layer.
+  - `src/tui/view/create_form.rs` now owns the centered-panel layout and row-formatting helpers; reuse those patterns for future form/modal screens before adding more placeholder-specific rendering in `src/tui/view.rs`.
+- Verification completed for this create-form step:
+  - `mise exec -- cargo test tui::view::create_form -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
