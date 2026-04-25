@@ -7,6 +7,16 @@ pub mod theme;
 pub mod update;
 pub mod view;
 
+#[allow(unused_imports)]
+pub use effect::{Effect, IssueDraft, IssuePatch};
+#[allow(unused_imports)]
+pub use model::{
+    BOARD_COLUMNS, BoardState, ConfigHandle, CreateFormState, DetailState, HelpState, IshType,
+    Model, PickerState, Priority, Screen, Severity, Status, StatusLine,
+};
+#[allow(unused_imports)]
+pub use msg::{EditorRequest, FormFieldEdit, Msg, MsgResult, SaveFailure, SaveSuccess};
+
 use crate::app::{AppContext, AppError};
 
 pub fn run(ctx: &AppContext) -> Result<(), AppError> {

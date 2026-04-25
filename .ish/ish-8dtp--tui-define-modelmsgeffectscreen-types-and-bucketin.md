@@ -1,13 +1,13 @@
 ---
 # ish-8dtp
 title: 'TUI: define Model/Msg/Effect/Screen types and bucketing helpers'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-25T03:20:55.514741Z
-updated_at: 2026-04-25T03:21:17.715584Z
+updated_at: 2026-04-25T03:36:12.843103Z
 parent: ish-q6t1
 blocked_by:
 - ish-loy6
@@ -59,3 +59,17 @@ stack, plus per-screen state structs and the sort/bucketing helpers.
 - Add a unit test in `model.rs` for `bucket_for_status` covering: archive
   exclusion, scrapped exclusion, priority/updated-at sort order, and an
   empty bucket.
+
+## Implementation notes
+- Replaced the stub TUI type files with the first shared typed contracts: `Status`, `IshType`, `Priority`, `Severity`, `StatusLine`, `Screen`, `Model`, `IssueDraft`, `IssuePatch`, and the initial `Msg` variants used by later keymap/update/runtime work.
+- Added `Model::new(config)` to seed a board-first screen stack and `CreateFormState::new(&Config)` to initialize create-form defaults from project config.
+- `Model::bucket_for_status(...)` filters archived files by `path.starts_with("archive/")`, excludes `scrapped`, and sorts by priority rank then `updated_at` descending.
+- Re-exported the public TUI types from `src/tui/mod.rs` so downstream modules can use `crate::tui::*` imports.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise run ci`
+
+## Follow-up notes
+- The TUI layer now has typed enums while the core/store layer still uses strings; future executor/update work should keep conversions at the TUI boundary rather than leaking strings back into screen/update code.
+- `Msg` includes a few forward-looking async variants (`EditorRequested`, `Followup`) to keep the runtime/effect design flexible; refine or trim them when the runtime contract is implemented if a simpler shape emerges.
