@@ -151,6 +151,14 @@ impl Store {
         self.load_dir(&root)
     }
 
+    pub fn load_one(&self, id: &str) -> Result<Ish, StoreError> {
+        let normalized_id = self.normalize_id(id);
+        let path = self
+            .find_ish_path(&self.root, &normalized_id)?
+            .ok_or_else(|| StoreError::NotFound(normalized_id.clone()))?;
+        self.load_ish(&path)
+    }
+
     pub fn all(&self) -> Vec<&Ish> {
         self.ishes.values().collect()
     }
@@ -748,6 +756,42 @@ impl Store {
         })
     }
 
+    fn find_ish_path(&self, dir: &Path, id: &str) -> Result<Option<PathBuf>, StoreError> {
+        for entry in fs::read_dir(dir).map_err(StoreError::Io)? {
+            let entry = entry.map_err(StoreError::Io)?;
+            let path = entry.path();
+            let file_type = entry.file_type().map_err(StoreError::Io)?;
+
+            if file_type.is_dir() {
+                if path != self.root && is_hidden(&path) {
+                    continue;
+                }
+
+                if let Some(found) = self.find_ish_path(&path, id)? {
+                    return Ok(Some(found));
+                }
+
+                continue;
+            }
+
+            if !file_type.is_file() || path.extension() != Some(OsStr::new("md")) {
+                continue;
+            }
+
+            let file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| StoreError::InvalidPath(path.clone()))?;
+            let (candidate_id, _) = crate::model::ish::parse_filename(file_name);
+
+            if candidate_id == id {
+                return Ok(Some(path));
+            }
+        }
+
+        Ok(None)
+    }
+
     fn ish_absolute_path(&self, id: &str) -> Result<PathBuf, StoreError> {
         let ish = self
             .ishes
@@ -1308,6 +1352,70 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap()
         );
         assert!(ish.created_at <= Utc::now());
+    }
+
+    #[test]
+    fn load_one_reads_a_single_ish_by_full_or_short_id() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let archive_dir = root.join("archive");
+
+        fs::create_dir_all(&archive_dir).expect("archive dir should exist");
+        write_ish(
+            &archive_dir.join("ish-abcd--archived.md"),
+            "ish-abcd",
+            "Archived",
+            "completed",
+            "task",
+            Some("normal"),
+            "Archived body.",
+        );
+
+        let store = Store::new(&root, Config::default()).expect("store should initialize");
+
+        let by_short_id = store.load_one("abcd").expect("short id should resolve");
+        let by_full_id = store
+            .load_one("ish-abcd")
+            .expect("full id should resolve as well");
+
+        assert_eq!(by_short_id.id, "ish-abcd");
+        assert_eq!(by_short_id.path, "archive/ish-abcd--archived.md");
+        assert_eq!(by_short_id.body, "Archived body.");
+        assert_eq!(by_full_id.id, by_short_id.id);
+        assert_eq!(by_full_id.path, by_short_id.path);
+    }
+
+    #[test]
+    fn load_one_returns_not_found_for_unknown_id() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+
+        let store = Store::new(&root, Config::default()).expect("store should initialize");
+        let error = store
+            .load_one("missing")
+            .expect_err("unknown ids should return not found");
+
+        assert!(matches!(error, StoreError::NotFound(ref id) if id == "ish-missing"));
+    }
+
+    #[test]
+    fn load_one_returns_parse_errors_for_corrupted_files() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        fs::create_dir_all(&root).expect("root dir should exist");
+        fs::write(
+            root.join("ish-bad1--corrupted.md"),
+            "---\n# ish-bad1\ntitle: Corrupted\nstatus: todo\ntype: [\n---\n\nBody.\n",
+        )
+        .expect("corrupted ish file should be written");
+
+        let store = Store::new(&root, Config::default()).expect("store should initialize");
+        let error = store
+            .load_one("bad1")
+            .expect_err("corrupted files should surface parse errors");
+
+        assert!(matches!(error, StoreError::Yaml { .. }));
     }
 
     #[test]

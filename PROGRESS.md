@@ -36,3 +36,21 @@
   - `mise exec -- cargo test`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-fww3` (`TUI: extend test_support with TUI helpers`).
+- Extended `src/test_support.rs` with a test-only `tui` namespace that now provides:
+  - `IshBuilder` for concise in-memory TUI fixture construction
+  - `model_with_board(...)` to seed a board-first `Model` with cached etags
+  - `dispatch(...)` to fold `Msg`s through `tui::update::update(...)` while collecting effects
+  - `key(...)` plus exported `k!` macro support for compact `KeyEvent` construction in future keymap tests
+- Added focused helper coverage in `src/test_support.rs` so the new fixtures stay clippy-clean until the downstream keymap/update test ishes start consuming them directly.
+- Added `Store::load_one(id)` in `src/core/store.rs` ahead of the runtime/editor work:
+  - resolves both short and fully-prefixed ids
+  - searches the `.ish/` tree recursively (including archived files while still skipping hidden directories)
+  - returns existing typed `StoreError::NotFound` / `StoreError::Yaml` failures for focused single-issue reloads
+- Notes for future workers:
+  - `src/tui/update.rs` now exposes the shared `update(model, msg) -> (Model, Vec<Effect>)` function signature as a temporary no-op so the new `dispatch(...)` helper can compile before the real update task lands.
+  - The new `k!` macro is exported at crate scope for tests as `crate::k!(...)`.
+  - `Store::load_one(...)` is available for the eventual editor-return path, but the runtime still needs to start calling it once the editor/runtime ishes are implemented.
+- Verification completed for this helper groundwork step:
+  - `mise exec -- cargo test`
+  - `mise run ci`

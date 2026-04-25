@@ -1,7 +1,7 @@
 ---
 # ish-fww3
 title: 'TUI: extend test_support with TUI helpers'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
@@ -36,3 +36,14 @@ be written concisely.
 ## Verification
 - `mise run ci` passes.
 - The helpers are exercised by the unit-test ishes that depend on this.
+
+## Implementation notes
+- Extended `src/test_support.rs` with a test-only `tui` namespace that provides `IshBuilder`, `model_with_board(...)`, `dispatch(...)`, and `key(...)` helpers for upcoming keymap/update tests.
+- Added an exported `k!` macro (`crate::k!(...)`) so future test modules can construct `KeyEvent`s tersely without repeating modifier boilerplate.
+- Added local helper tests in `src/test_support.rs` so the new fixtures stay compiled and clippy-clean until downstream TUI test tasks start using them directly.
+- Added the shared `tui::update::update(...)` function signature as a temporary no-op implementation so `dispatch(...)` can fold messages immediately without each future test having to paper over a missing symbol.
+- Landed `Store::load_one(id)` in `src/core/store.rs` as enabling work for the editor/runtime follow-up: it supports short/full ids, can load archived issues directly, and surfaces focused not-found / parse failures for single-issue reloads.
+
+## Validation
+- `mise exec -- cargo test`
+- `mise run ci`
