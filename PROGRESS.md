@@ -266,3 +266,17 @@
   - `mise exec -- cargo test tui::view::status_picker -- --nocapture`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-byfp` (`TUI: unit tests for update`).
+- Expanded `src/tui/update.rs` coverage from a single smoke test to a broader pure-update suite covering:
+  - board no-wrap navigation, per-column cursor memory, empty-column handling, and half-page/top/bottom movement
+  - `IssuesLoaded(...)` cache replacement plus board cursor clamping while archived/scrapped issues remain filtered from buckets
+  - screen-stack transitions for detail, status picker, help, and create-form flows
+  - status-save message handling, including conflict errors and the current executor-owned reload contract
+  - status-line expiration, sticky-error replacement rules, create-form discard confirmation, and quit handling
+- Notes for future workers:
+  - The update tests now intentionally pin the current contract where `Msg::SaveCompleted(...)` only updates the success banner; the actual reload still comes from the effect executor's follow-up `Msg::IssuesLoaded(...)`. If you later move reload responsibility into `update`, adjust these tests deliberately instead of assuming both layers should reload.
+  - `src/tui/update.rs` now has small local test helpers (`todo_model(...)`, `board_state(...)`, `top_screen(...)`) to keep assertions focused on observable model/effect behavior; reuse those patterns if the remaining TUI polish work adds more update tests.
+- Verification completed for this update-test step:
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
