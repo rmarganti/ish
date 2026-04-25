@@ -17,6 +17,12 @@ mod status_picker;
 
 pub fn draw(frame: &mut Frame<'_>, model: &Model) {
     let area = frame.area();
+
+    if model.term_too_small {
+        draw_terminal_too_small(frame, area);
+        return;
+    }
+
     let status_height = if model.status_line.is_some() { 1 } else { 0 };
     let sections = Layout::vertical([
         Constraint::Min(1),
@@ -69,6 +75,16 @@ fn draw_placeholder(frame: &mut Frame<'_>, area: Rect) {
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true }),
         inner,
+    );
+}
+
+fn draw_terminal_too_small(frame: &mut Frame<'_>, area: Rect) {
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new("Terminal too small (minimum 80×20)")
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true }),
+        area,
     );
 }
 
@@ -160,8 +176,11 @@ fn card_meta_line(
 
 #[cfg(test)]
 mod tests {
-    use super::{status_label, truncate_with_ellipsis};
-    use crate::tui::Status;
+    use super::{draw, status_label, truncate_with_ellipsis};
+    use crate::test_support::tui::model_with_board;
+    use crate::tui::{Severity, Status, StatusLine};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn truncates_card_titles_with_ellipsis() {
@@ -174,5 +193,32 @@ mod tests {
     fn formats_status_labels_for_column_headers() {
         assert_eq!(status_label(Status::Draft), "Draft");
         assert_eq!(status_label(Status::InProgress), "In Progress");
+    }
+
+    #[test]
+    fn terminal_too_small_message_replaces_normal_chrome() {
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        let mut model = model_with_board(vec![]);
+        model.term_too_small = true;
+        model.status_line = Some(StatusLine {
+            text: "saved".to_string(),
+            severity: Severity::Success,
+        });
+
+        terminal
+            .draw(|frame| draw(frame, &model))
+            .expect("drawing should succeed");
+
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(rendered.contains("Terminal too small (minimum 80×20)"));
+        assert!(!rendered.contains("saved"));
+        assert!(!rendered.contains("? help"));
     }
 }

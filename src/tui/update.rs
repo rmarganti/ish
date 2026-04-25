@@ -624,6 +624,20 @@ mod tests {
     }
 
     #[test]
+    fn resize_toggles_terminal_too_small_flag() {
+        let model = model_with_board(vec![]);
+        let (model, effects) = update(model, Msg::Resize(40, 10));
+
+        assert!(effects.is_empty());
+        assert!(model.term_too_small);
+
+        let (model, effects) = update(model, Msg::Resize(120, 30));
+
+        assert!(effects.is_empty());
+        assert!(!model.term_too_small);
+    }
+
+    #[test]
     fn board_navigation_stops_at_edges_remembers_columns_and_pages_by_half_screen() {
         let model = todo_model(6);
         let (model, effects) = dispatch(

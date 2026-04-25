@@ -280,3 +280,15 @@
   - `mise exec -- cargo test tui::update -- --nocapture`
   - `mise run ci`
   - `mise exec -- ish check`
+- Completed `ish-353g` (`TUI: terminal-too-small error rendering`).
+- Finished the minimum-terminal UX promised in the PRD:
+  - `src/tui/view.rs` now short-circuits to a centered `Terminal too small (minimum 80×20)` message whenever `model.term_too_small` is set
+  - the too-small path intentionally skips normal screen rendering plus the shared status line/footer so cramped terminals do not show broken partial chrome
+  - `src/tui/update.rs` now includes the requested resize regression test proving the flag flips both ways across small/large terminal dimensions
+- Notes for future workers:
+  - The view-level too-small test currently asserts that normal chrome text like the status line and `? help` footer are absent, so if you intentionally redesign the cramped-terminal UX, update that test alongside the rendering contract rather than loosening it accidentally.
+  - `update` already owned the `term_too_small` state transition before this task; future layout work should keep that state in the pure update layer and treat `view::draw(...)` as a pure consumer of the flag.
+- Verification completed for this minimum-terminal step:
+  - `mise exec -- cargo test terminal_too_small -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
