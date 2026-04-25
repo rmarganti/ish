@@ -1,3 +1,4 @@
+pub mod editor;
 pub mod effect;
 pub mod keymap;
 pub mod model;

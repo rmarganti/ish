@@ -1,7 +1,7 @@
 use crate::app::{AppContext, AppError};
 use crate::core::store::Store;
 use crate::output::ErrorCode;
-use crate::tui::{Effect, Model, Msg, effect, keymap, update, view};
+use crate::tui::{Effect, Model, Msg, editor, effect, keymap, update, view};
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
@@ -13,7 +13,6 @@ use std::io::{self, IsTerminal};
 use std::time::Duration;
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
-const EDITOR_NOT_IMPLEMENTED: &str = "Editor integration is not implemented yet";
 
 type TuiTerminal = Terminal<CrosstermBackend<io::Stdout>>;
 
@@ -62,8 +61,11 @@ fn setup_terminal() -> Result<TuiTerminal, AppError> {
 fn process_queue(model: &mut Model, store: &mut Store, queue: &mut VecDeque<Msg>) {
     while let Some(msg) = queue.pop_front() {
         match msg {
-            Msg::EditorRequested(_) => {
-                queue.push_back(Msg::EditorReturned(Err(EDITOR_NOT_IMPLEMENTED.to_string())));
+            Msg::EditorRequested(request) => {
+                let result =
+                    open_requested_editor(store, &request.id).map_err(|error| error.message);
+                queue.push_back(Msg::EditorReturned(result));
+                queue.extend(effect::execute(Effect::LoadIssues, store));
             }
             Msg::Followup(effect) => {
                 queue.extend(effect::execute(effect, store));
@@ -83,6 +85,17 @@ fn process_queue(model: &mut Model, store: &mut Store, queue: &mut VecDeque<Msg>
 
 fn run_effect(effect_to_run: Effect, store: &mut Store) -> Vec<Msg> {
     effect::execute(effect_to_run, store)
+}
+
+fn open_requested_editor(store: &Store, id: &str) -> Result<(), AppError> {
+    let issue = store.get(id).ok_or_else(|| {
+        AppError::new(
+            ErrorCode::NotFound,
+            format!("unable to open editor for missing issue `{id}`"),
+        )
+    })?;
+    let path = store.root().join(&issue.path);
+    editor::open_editor(&path)
 }
 
 fn read_event(model: &Model) -> Result<Option<Msg>, AppError> {

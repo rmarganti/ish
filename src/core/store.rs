@@ -159,6 +159,10 @@ impl Store {
         self.load_ish(&path)
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn all(&self) -> Vec<&Ish> {
         self.ishes.values().collect()
     }

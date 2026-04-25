@@ -198,3 +198,25 @@
   - `mise exec -- cargo test tui::view::create_form -- --nocapture`
   - `mise exec -- ish check`
   - `mise run ci`
+- Completed `ish-1kyq` (`TUI: editor integration (suspend/resume with Drop guard)`).
+- Added the first real TUI editor bridge in `src/tui/editor.rs`:
+  - resolves `$VISUAL` → `$EDITOR` → `vi`
+  - parses shell-style editor commands (including quoted executable names / flags) with `shell-words`
+  - suspends the terminal via a `SuspendedTerminal` Drop guard that leaves the alternate screen, shows the cursor, disables raw mode, flushes stdout, and restores TUI mode on drop
+  - surfaces non-zero exits and spawn failures as `AppError`s so runtime can keep the session alive
+- Updated `src/tui/runtime.rs` so `Msg::EditorRequested(...)` now:
+  - resolves the selected issue's on-disk markdown path from the loaded store cache
+  - opens the real editor instead of emitting the previous placeholder error
+  - always queues `Effect::LoadIssues` after the editor returns, regardless of success or failure
+  - converts the editor result into `Msg::EditorReturned(...)` so the existing status-line/update flow handles success vs. error messaging
+- Added `Store::root()` in `src/core/store.rs` so runtime/editor code can build canonical file paths from the actual store root even when `ish tui` is launched from a nested working directory.
+- Added focused editor helper coverage for default resolution, `$VISUAL` precedence, shell-style quoting, and exit-status formatting.
+- Notes for future workers:
+  - Runtime/editor integration now assumes the effect executor's create flow ordering (`SaveCompleted` → reload → `EditorRequested`) remains FIFO; if you change that ordering later, re-check create-and-edit behavior carefully.
+  - Post-editor refresh still uses the PRD-approved full workspace reload. If later work wants per-issue parse-error recovery after editing, hook it up through the existing `Store::load_one(...)` helper instead of duplicating path/id resolution.
+  - `shell-words` is now the single parser for editor env vars; extend `src/tui/editor.rs` there if you need richer command forms rather than open-coding parsing in runtime.
+- Verification completed for this editor-integration step:
+  - `mise exec -- cargo test tui::editor -- --nocapture`
+  - `mise exec -- cargo test`
+  - `mise run ci`
+  - `mise exec -- ish check`
