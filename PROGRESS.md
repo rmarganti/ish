@@ -157,3 +157,26 @@
 - Verification completed for this runtime step:
   - `mise exec -- cargo test`
   - `mise run ci`
+- Completed `ish-nxj6` (`TUI: issue detail view (metadata + scrollable body)`).
+- Added the first real detail renderer under `src/tui/view/issue_detail.rs` and wired it into `src/tui/view.rs` so selecting a board card now lands on a non-placeholder detail screen.
+- The detail screen now renders:
+  - a metadata block with title, id, colored type/status/priority, tags, parent, blocking, blocked_by, and `updated_at`
+  - a scrollable body `Paragraph` driven by `DetailState::scroll`
+  - a local footer hint row for `e edit`, `s status`, and `q back`
+  - a focused fallback message if the issue disappears from the in-memory cache while the detail screen is open
+- Markdown/body handling stays intentionally lightweight in v1:
+  - body text is rendered directly into ratatui lines
+  - headings get simple bold/underlined styling
+  - fenced-code delimiter lines are dimmed
+  - empty bodies show a dim `(empty body)` placeholder
+- Added focused detail-view coverage:
+  - metadata helper assertions for tags/relationships
+  - body-formatting assertions for empty and simple markdown bodies
+  - a `ratatui::backend::TestBackend` smoke test proving the registered detail screen renders without panicking
+- Notes for future workers:
+  - The detail body currently uses a plain `Paragraph` with lightweight line styling rather than a full markdown renderer; if richer markdown support is added later, keep the scroll contract keyed to `DetailState::scroll` so the existing update/keymap behavior stays valid.
+  - Footer/status-line layout is still local to the detail view for now; when `ish-wka9` lands, consolidate shared footer/help/status-line composition there instead of duplicating key-hint chrome per screen.
+- Verification completed for this detail-view step:
+  - `mise exec -- cargo test tui::view::issue_detail -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
