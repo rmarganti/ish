@@ -33,7 +33,7 @@ pub fn run(ctx: AppContext) -> Result<(), AppError> {
     queue.push_back(Msg::Resize(width, height));
     queue.extend(effect::execute(Effect::LoadIssues, &mut store));
 
-    process_queue(&mut model, &mut store, &mut queue);
+    process_queue(&mut model, &mut store, &mut queue, &mut terminal)?;
     draw(&mut terminal, &model)?;
 
     while !model.quit {
@@ -45,7 +45,7 @@ pub fn run(ctx: AppContext) -> Result<(), AppError> {
             queue.push_back(Msg::Tick);
         }
 
-        process_queue(&mut model, &mut store, &mut queue);
+        process_queue(&mut model, &mut store, &mut queue, &mut terminal)?;
         draw(&mut terminal, &model)?;
     }
 
@@ -58,12 +58,20 @@ fn setup_terminal() -> Result<TuiTerminal, AppError> {
     Terminal::new(backend).map_err(tui_io_error("failed to initialize terminal backend"))
 }
 
-fn process_queue(model: &mut Model, store: &mut Store, queue: &mut VecDeque<Msg>) {
+fn process_queue(
+    model: &mut Model,
+    store: &mut Store,
+    queue: &mut VecDeque<Msg>,
+    terminal: &mut TuiTerminal,
+) -> Result<(), AppError> {
     while let Some(msg) = queue.pop_front() {
         match msg {
             Msg::EditorRequested(request) => {
                 let result =
                     open_requested_editor(store, &request.id).map_err(|error| error.message);
+                terminal
+                    .clear()
+                    .map_err(tui_io_error("failed to clear terminal after editor"))?;
                 queue.push_back(Msg::EditorReturned(result));
                 queue.extend(effect::execute(Effect::LoadIssues, store));
             }
@@ -81,6 +89,7 @@ fn process_queue(model: &mut Model, store: &mut Store, queue: &mut VecDeque<Msg>
             }
         }
     }
+    Ok(())
 }
 
 fn run_effect(effect_to_run: Effect, store: &mut Store) -> Vec<Msg> {
