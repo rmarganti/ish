@@ -31,7 +31,7 @@ fn footer_line(model: &Model) -> Line<'static> {
             ("?", "help"),
             ("q", "back"),
         ]),
-        Some(Screen::StatusPicker(_)) => hints(&[
+        Some(Screen::StatusPicker(_)) | Some(Screen::PriorityPicker(_)) => hints(&[
             ("j/k", "move"),
             ("enter", "choose"),
             ("esc", "cancel"),

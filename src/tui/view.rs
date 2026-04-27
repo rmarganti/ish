@@ -60,6 +60,7 @@ fn draw_screen(frame: &mut Frame<'_>, area: Rect, model: &Model, screen: &Screen
         Screen::Board(state) => board::draw(frame, area, model, state),
         Screen::IssueDetail(state) => issue_detail::draw(frame, area, model, state),
         Screen::StatusPicker(state) => status_picker::draw(frame, area, model, state),
+        Screen::PriorityPicker(_) => draw_placeholder(frame, area),
         Screen::CreateForm(state) => create_form::draw(frame, area, model, state),
         Screen::Help(_) => help::draw(frame, area),
     }

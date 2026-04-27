@@ -111,6 +111,7 @@ fn save_issue_updates_status_on_disk_and_changes_etag() {
             patch: IssuePatch {
                 id: "ish-abcd".to_string(),
                 status: Some(Status::InProgress),
+                priority: None,
             },
             etag: previous_etag.clone(),
         },
@@ -168,6 +169,7 @@ fn stale_etag_conflict_is_reported_after_external_write_and_reload() {
             patch: IssuePatch {
                 id: "ish-abcd".to_string(),
                 status: Some(Status::Completed),
+                priority: None,
             },
             etag: stale_etag,
         },

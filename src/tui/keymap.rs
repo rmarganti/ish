@@ -17,7 +17,8 @@ pub fn map_key(screen: &Screen, key: KeyEvent) -> Option<Msg> {
     match screen {
         Screen::Board(_) => map_board_key(key),
         Screen::IssueDetail(_) => map_detail_key(key),
-        Screen::StatusPicker(_) => map_picker_key(key),
+        Screen::StatusPicker(_) => map_picker_key(key, false),
+        Screen::PriorityPicker(_) => map_picker_key(key, true),
         Screen::CreateForm(state) => map_create_form_key(state, key),
         Screen::Help(_) => Some(Msg::PopScreen),
     }
@@ -171,6 +172,11 @@ fn map_detail_key(key: KeyEvent) -> Option<Msg> {
             ..
         } => Some(Msg::OpenStatusPicker),
         KeyEvent {
+            code: KeyCode::Char('p'),
+            modifiers: KeyModifiers::NONE,
+            ..
+        } => Some(Msg::OpenPriorityPicker),
+        KeyEvent {
             code: KeyCode::Char('q'),
             modifiers: KeyModifiers::NONE,
             ..
@@ -184,7 +190,7 @@ fn map_detail_key(key: KeyEvent) -> Option<Msg> {
     }
 }
 
-fn map_picker_key(key: KeyEvent) -> Option<Msg> {
+fn map_picker_key(key: KeyEvent, submit_priority: bool) -> Option<Msg> {
     match key {
         KeyEvent {
             code: KeyCode::Char('j'),
@@ -212,7 +218,11 @@ fn map_picker_key(key: KeyEvent) -> Option<Msg> {
             code: KeyCode::Enter,
             modifiers: KeyModifiers::NONE,
             ..
-        } => Some(Msg::SubmitStatusChange),
+        } => Some(if submit_priority {
+            Msg::SubmitPriorityChange
+        } else {
+            Msg::SubmitStatusChange
+        }),
         KeyEvent {
             code: KeyCode::Char('q'),
             modifiers: KeyModifiers::NONE,
@@ -366,7 +376,10 @@ fn is_printable(ch: char) -> bool {
 mod tests {
     use super::map_key;
     use crate::config::Config;
-    use crate::tui::{CreateFormState, DetailState, HelpState, Msg, PickerState, Screen, Status};
+    use crate::tui::{
+        CreateFormState, DetailState, HelpState, Msg, PickerState, Priority, PriorityPickerState,
+        Screen, Status,
+    };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn assert_bindings(screen: &Screen, bindings: &[(KeyEvent, Msg)]) {
@@ -390,6 +403,14 @@ mod tests {
         Screen::StatusPicker(PickerState {
             issue_id: "ish-abcd".to_string(),
             options: Status::ALL.to_vec(),
+            selected: 0,
+        })
+    }
+
+    fn priority_picker_screen() -> Screen {
+        Screen::PriorityPicker(PriorityPickerState {
+            issue_id: "ish-abcd".to_string(),
+            options: Priority::ALL.to_vec(),
             selected: 0,
         })
     }
@@ -562,6 +583,10 @@ mod tests {
                         Msg::OpenStatusPicker,
                     ),
                     (
+                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
+                        Msg::OpenPriorityPicker,
+                    ),
+                    (
                         KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
                         Msg::PopScreen,
                     ),
@@ -615,6 +640,61 @@ mod tests {
                     (
                         KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                         Msg::SubmitStatusChange,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+                        Msg::PopScreen,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                        Msg::PopScreen,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+                        Msg::OpenHelp,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                        Msg::Quit,
+                    ),
+                ],
+            );
+        }
+    }
+
+    mod priority_picker {
+        use super::*;
+
+        #[test]
+        fn maps_priority_picker_bindings() {
+            let screen = priority_picker_screen();
+            assert_bindings(
+                &screen,
+                &[
+                    (
+                        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                        Msg::MoveDown,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+                        Msg::MoveDown,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+                        Msg::MoveDown,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                        Msg::MoveUp,
+                    ),
+                    (KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), Msg::MoveUp),
+                    (
+                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+                        Msg::MoveUp,
+                    ),
+                    (
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        Msg::SubmitPriorityChange,
                     ),
                     (
                         KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
@@ -869,7 +949,12 @@ mod tests {
                 KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
             ];
 
-            let other_screens = [board_screen(), detail_screen(), picker_screen()];
+            let other_screens = [
+                board_screen(),
+                detail_screen(),
+                picker_screen(),
+                priority_picker_screen(),
+            ];
 
             for screen in &other_screens {
                 for key in unique_create_form_bindings {
