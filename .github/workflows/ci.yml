@@ -25,4 +25,5 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: jdx/mise-action@v3
+      - run: rustup component add clippy rustfmt  # Ensure components are present before parallel tasks
       - run: mise run ci

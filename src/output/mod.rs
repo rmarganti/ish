@@ -427,7 +427,7 @@ fn render_badge(label: &str, color_name: Option<&str>) -> colored::ColoredString
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-fn color_name_to_color(color_name: &str) -> Option<Color> {
+pub(crate) fn color_name_to_color(color_name: &str) -> Option<Color> {
     match color_name {
         "red" => Some(Color::Red),
         "yellow" => Some(Color::Yellow),
@@ -437,6 +437,22 @@ fn color_name_to_color(color_name: &str) -> Option<Color> {
         "cyan" => Some(Color::Cyan),
         "gray" => Some(Color::BrightBlack),
         "white" => Some(Color::White),
+        _ => None,
+    }
+}
+
+pub(crate) fn color_name_to_ratatui(color_name: &str) -> Option<ratatui::style::Color> {
+    use ratatui::style::Color as RatatuiColor;
+
+    match color_name_to_color(color_name) {
+        Some(Color::Red) => Some(RatatuiColor::Red),
+        Some(Color::Yellow) => Some(RatatuiColor::Yellow),
+        Some(Color::Green) => Some(RatatuiColor::Green),
+        Some(Color::Blue) => Some(RatatuiColor::Blue),
+        Some(Color::Magenta) => Some(RatatuiColor::Magenta),
+        Some(Color::Cyan) => Some(RatatuiColor::Cyan),
+        Some(Color::BrightBlack) => Some(RatatuiColor::DarkGray),
+        Some(Color::White) => Some(RatatuiColor::White),
         _ => None,
     }
 }

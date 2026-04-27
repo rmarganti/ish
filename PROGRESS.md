@@ -1,0 +1,324 @@
+# Progress
+
+## 2026-04-25
+- Completed `ish-loy6` (`TUI: scaffolding, deps, and ish tui CLI entry`).
+- Added the initial `ish tui` CLI plumbing:
+  - `Commands::Tui` in `src/cli/mod.rs`
+  - `src/commands/tui.rs`
+  - app dispatch in `src/app/mod.rs`
+  - top-level `mod tui;` in `src/main.rs`
+- Added the initial TUI module skeleton under `src/tui/` with stub modules:
+  `model`, `msg`, `keymap`, `update`, `effect`, `runtime`, `view`, and `theme`.
+  `src/tui/mod.rs::run` delegates to `runtime::run`, which is currently a no-op.
+- Added `ratatui` and `crossterm` to `Cargo.toml` and refreshed `Cargo.lock`.
+- `ish tui` currently requires a normal TTY flow and rejects `--json` with a
+  validation error; future TUI work can assume JSON output compatibility is
+  intentionally out of scope for this subcommand.
+- Verification completed for this foundation step:
+  - `mise exec -- cargo test`
+  - `mise exec -- cargo run -- tui`
+  - `mise exec -- cargo run -- --help | rg "\btui\b"`
+  - `mise run ci`
+- Completed `ish-8dtp` (`TUI: define Model/Msg/Effect/Screen types and bucketing helpers`).
+- Added the foundational shared TUI data model in `src/tui/model.rs`:
+  - `Model`, `Screen`, `BoardState`, `DetailState`, `PickerState`, `CreateFormState`, `HelpState`
+  - TUI enums for `Status`, `IshType`, `Priority`, plus `Severity`/`StatusLine`
+  - `BOARD_COLUMNS` and `Model::bucket_for_status(...)`
+- Added the initial message and effect contracts used by later TUI work:
+  - `src/tui/msg.rs` now defines navigation/screen/form/async `Msg` variants plus `FormFieldEdit`, `SaveFailure`, `SaveSuccess`, and `EditorRequest`
+  - `src/tui/effect.rs` now defines `Effect`, `IssuePatch`, and `IssueDraft`
+- Re-exported the public TUI types from `src/tui/mod.rs` so downstream TUI modules can import from `crate::tui::*` instead of reaching into leaf modules.
+- Added a `bucket_for_status` unit test covering archived exclusion, scrapped exclusion, priority ordering, updated-at ordering, and an empty completed bucket.
+- Notes for future workers:
+  - The TUI layer currently uses typed enums (`Status`, `IshType`, `Priority`) even though the store model still uses strings; future executor/update work should convert at the TUI boundary.
+  - `CreateFormState::new(&Config)` seeds the form type from `config.ish.default_type` and leaves priority at `normal`; if later work wants config-driven default priority, add it deliberately rather than assuming the store has one.
+- Verification completed for this types/foundation step:
+  - `mise exec -- cargo test`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-fww3` (`TUI: extend test_support with TUI helpers`).
+- Extended `src/test_support.rs` with a test-only `tui` namespace that now provides:
+  - `IshBuilder` for concise in-memory TUI fixture construction
+  - `model_with_board(...)` to seed a board-first `Model` with cached etags
+  - `dispatch(...)` to fold `Msg`s through `tui::update::update(...)` while collecting effects
+  - `key(...)` plus exported `k!` macro support for compact `KeyEvent` construction in future keymap tests
+- Added focused helper coverage in `src/test_support.rs` so the new fixtures stay clippy-clean until the downstream keymap/update test ishes start consuming them directly.
+- Added `Store::load_one(id)` in `src/core/store.rs` ahead of the runtime/editor work:
+  - resolves both short and fully-prefixed ids
+  - searches the `.ish/` tree recursively (including archived files while still skipping hidden directories)
+  - returns existing typed `StoreError::NotFound` / `StoreError::Yaml` failures for focused single-issue reloads
+- Notes for future workers:
+  - `src/tui/update.rs` now exposes the shared `update(model, msg) -> (Model, Vec<Effect>)` function signature as a temporary no-op so the new `dispatch(...)` helper can compile before the real update task lands.
+  - The new `k!` macro is exported at crate scope for tests as `crate::k!(...)`.
+  - `Store::load_one(...)` is available for the eventual editor-return path, but the runtime still needs to start calling it once the editor/runtime ishes are implemented.
+- Verification completed for this helper groundwork step:
+  - `mise exec -- cargo test`
+  - `mise run ci`
+- Completed `ish-5017` (`TUI: theme module and shared style helpers`).
+- Added the first real shared TUI palette implementation in `src/tui/theme.rs`:
+  - status/type/priority color lookups sourced from `Config`
+  - `status_style`, `type_style`, `priority_style`, and `severity_style`
+  - shared widget helpers for card borders, column headers, and footer text
+- Added a small cross-UI color adapter in `src/output/mod.rs` so the existing CLI color-name mapping now also produces `ratatui::style::Color` values for the TUI.
+- Added focused theme coverage that future view work can lean on:
+  - kanban status colors match the CLI palette and are non-default
+  - type/priority colors match config-backed palette entries
+  - status/severity/widget helpers apply the expected modifiers and colors
+- Notes for future workers:
+  - `src/tui/theme.rs` is now the intended import surface for view styling; prefer consuming helpers there instead of open-coding colors in view modules.
+  - The adapter in `src/output/mod.rs` is the shared bridge from config color names to ratatui colors, so extending palette support should happen there to keep CLI/TUI output aligned.
+- Verification completed for this theme groundwork step:
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-a6jl` (`TUI: core::store load_one(id) helper`).
+- Confirmed the already-landed targeted store reload helper in `src/core/store.rs` and recorded the task as complete:
+  - `Store::load_one(&self, id: &str)` normalizes short ids using the configured prefix
+  - recursively scans the workspace while skipping hidden directories
+  - resolves archived issue files too, then parses them through the existing `load_ish(...)` path
+  - preserves typed `StoreError::NotFound(...)` / `StoreError::Yaml { .. }` failures for focused caller handling
+- Notes for future workers:
+  - The runtime/editor handoff is still deferred because `src/tui/runtime.rs` is currently a stub; when editor integration lands, prefer `Store::load_one(...)` for post-editor refreshes so parse errors can be surfaced per issue without forcing a full workspace reload.
+  - The helper already accepts both short ids (`abcd`) and prefixed ids (`ish-abcd`), so downstream TUI code should not re-normalize ids differently.
+- Verification completed for this tracking step:
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-778a` (`TUI: implement effect executor over core::store`).
+- Replaced the TUI effect stub in `src/tui/effect.rs` with the first real store-backed executor:
+  - `execute(effect, &mut Store) -> Vec<Msg>` now handles `LoadIssues`, `SaveIssue`, `CreateIssue`, `OpenEditorForIssue`, and `Quit`
+  - successful save/create flows emit `SaveCompleted(...)` and immediately follow with a full reload via `Msg::IssuesLoaded(...)`
+  - stale ETags map to `Msg::SaveFailed(Conflict { id })`
+  - editor launches remain runtime-owned; the executor emits `Msg::EditorRequested(...)` as a marker instead of touching terminal state
+- Added focused executor tests covering load, save+reload, conflict handling, create+editor follow-up, and runtime marker messages.
+- Notes for future workers:
+  - The executor intentionally takes `&mut Store` rather than `&Store` because `core::store` mutates its in-memory cache during `load`, `create`, and `update`; future runtime code should thread its owned store handle through effect execution mutably.
+  - Current message ordering is FIFO and deliberate: successful create/save returns `SaveCompleted` before the reload message, and create-with-editor appends `EditorRequested` after that reload. If runtime queue handling depends on a different order, change it explicitly rather than assuming.
+- Verification completed for this executor step:
+  - `mise exec -- cargo test tui::effect -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
+- Completed `ish-yfuo` (`TUI: implement pure update function`).
+- Replaced the `src/tui/update.rs` no-op with the first real pure update layer:
+  - top-level global handling for `Quit`, `Tick`, `Resize`, `IssuesLoaded`, `SaveCompleted`, `SaveFailed`, `EditorReturned`, and `DismissStatusLine`
+  - per-screen update handlers for board, detail, status picker, create form, and help screens
+  - board helpers for no-wrap movement, per-column cursor memory, empty-column handling, and cursor-in-view offset maintenance across the four kanban columns
+  - detail/picker/create-form flows that now emit `OpenEditorForIssue`, `SaveIssue`, and `CreateIssue` effects without coupling update logic to runtime/store I/O
+- Added status-line lifecycle behavior in update:
+  - info/success messages expire on `Tick`
+  - error messages stay sticky and resist immediate overwrite by lower-severity messages
+  - resize handling now toggles `model.term_too_small`
+- Added a minimal smoke test for the pure update path so the empty-board `Tick` flow is covered before the dedicated update test task lands.
+- Notes for future workers:
+  - `src/tui/update.rs` currently uses a small internal `BOARD_VISIBLE_ROWS` constant because terminal dimensions are not yet threaded through the model/runtime; revisit that once the runtime/view tasks land so half-page and scroll behavior can key off real layout information.
+  - `SaveCompleted` currently only sets the transient success message because the effect executor already emits a follow-up full reload message; keep that contract in mind before adding another reload in update/runtime and accidentally doubling store work.
+  - `Msg::SubmitCreateFormWithStatus(...)` is supported in update even though no keymap/view uses it yet, which should make it safe for future modal/submit UX changes without reopening the pure update task.
+- Verification completed for this update step:
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise exec -- cargo test`
+  - `mise run ci`
+- Completed `ish-jrw0` (`TUI: implement keymap (per-screen key->Msg)`).
+- Replaced the `src/tui/keymap.rs` stub with the first real pure keymap layer:
+  - global `Ctrl-c` quit handling before per-screen dispatch
+  - cross-screen `?` help toggle everywhere except the help overlay itself
+  - board/detail/picker/create-form/help key tables mapped onto the existing `Msg` variants used by update/runtime
+- Added create-form-specific mapping behavior keyed off `focused_field`:
+  - `Enter` only submits on the submit row
+  - left/right and `h`/`l` cycle type or priority only when those selector fields are focused
+  - printable text, backspace, and clear events continue to flow through `FormFieldEdit`
+- Notes for future workers:
+  - The keymap remains intentionally model-free; runtime work should pass the current top `Screen` into `map_key(...)` and feed the resulting `Msg` directly into `tui::update::update(...)`.
+  - Dedicated binding coverage is still pending in `ish-qevm`, so if you touch bindings while landing runtime/view work, add or update those unit tests in that follow-up task rather than relying on manual behavior.
+- Verification completed for this keymap step:
+  - `mise exec -- cargo test`
+  - `mise exec -- ish check`
+  - `mise run ci`
+- Completed `ish-4un1` (`TUI: board view (4-column kanban)`).
+- Replaced the TUI view stub with the first real board renderer:
+  - `src/tui/view.rs` now dispatches board rendering and hosts shared formatting helpers for status labels, truncation, and card metadata lines.
+  - `src/tui/view/board.rs` now renders four equal-width kanban columns, header counts, fixed-height bordered cards, and dim `(empty)` placeholders.
+  - Board rendering slices each status bucket using `BoardState::column_offsets[...]`, so future runtime wiring can immediately benefit from the pure update layer's cursor/scroll bookkeeping.
+- Notes for future workers:
+  - `src/tui/runtime.rs` is still a stub, so `ish tui` does not invoke the new renderer yet; the runtime/event-loop task should call `tui::view::draw(...)` once terminal setup lands.
+  - Shared view helpers now live in `src/tui/view.rs`; prefer reusing them in detail/create/help screens instead of duplicating status/type/priority formatting logic.
+- Verification completed for this board-view step:
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-twvz` (`TUI: implement runtime event loop and terminal setup`).
+- Replaced the no-op runtime in `src/tui/runtime.rs` with the first real TUI loop:
+  - sets up a `ratatui` terminal over `crossterm`
+  - uses a `TerminalGuard` Drop restore path for raw mode, alternate screen, and cursor visibility
+  - polls for key events, resize events, and tick timeouts
+  - feeds messages through `tui::update::update(...)` and effects through `tui::effect::execute(...)`
+  - redraws via `tui::view::draw(...)` after queued work is processed
+- Adjusted the TUI entrypoint ownership flow so `src/tui/mod.rs::run(...)` and `src/commands/tui.rs` now pass the loaded `AppContext` by value, allowing runtime code to reuse the already-open mutable store instead of reloading it.
+- Notes for future workers:
+  - `Msg::EditorRequested(...)` is now consumed by the runtime, but editor suspension itself is still intentionally deferred to `ish-1kyq`; for now the runtime converts that marker into a persistent error status instead of attempting a half-implemented suspend/resume flow.
+  - Headless/non-TTY invocations of `ish tui` currently return early with `Ok(())` so command/unit tests stay stable. If later work wants stronger non-interactive behavior, change it deliberately alongside tests rather than assuming raw-mode setup is always available.
+  - The runtime processes follow-up messages with a FIFO `VecDeque`; preserve that ordering unless you intentionally want create/save/editor follow-up behavior to change.
+- Verification completed for this runtime step:
+  - `mise exec -- cargo test`
+  - `mise run ci`
+- Completed `ish-nxj6` (`TUI: issue detail view (metadata + scrollable body)`).
+- Added the first real detail renderer under `src/tui/view/issue_detail.rs` and wired it into `src/tui/view.rs` so selecting a board card now lands on a non-placeholder detail screen.
+- The detail screen now renders:
+  - a metadata block with title, id, colored type/status/priority, tags, parent, blocking, blocked_by, and `updated_at`
+  - a scrollable body `Paragraph` driven by `DetailState::scroll`
+  - a local footer hint row for `e edit`, `s status`, and `q back`
+  - a focused fallback message if the issue disappears from the in-memory cache while the detail screen is open
+- Markdown/body handling stays intentionally lightweight in v1:
+  - body text is rendered directly into ratatui lines
+  - headings get simple bold/underlined styling
+  - fenced-code delimiter lines are dimmed
+  - empty bodies show a dim `(empty body)` placeholder
+- Added focused detail-view coverage:
+  - metadata helper assertions for tags/relationships
+  - body-formatting assertions for empty and simple markdown bodies
+  - a `ratatui::backend::TestBackend` smoke test proving the registered detail screen renders without panicking
+- Notes for future workers:
+  - The detail body currently uses a plain `Paragraph` with lightweight line styling rather than a full markdown renderer; if richer markdown support is added later, keep the scroll contract keyed to `DetailState::scroll` so the existing update/keymap behavior stays valid.
+  - Footer/status-line layout is still local to the detail view for now; when `ish-wka9` lands, consolidate shared footer/help/status-line composition there instead of duplicating key-hint chrome per screen.
+- Verification completed for this detail-view step:
+  - `mise exec -- cargo test tui::view::issue_detail -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-jeza` (`TUI: create form view`).
+- Added a dedicated create-form renderer in `src/tui/view/create_form.rs` and wired `Screen::CreateForm(...)` into `src/tui/view.rs`, so `c` from the board now lands on a real centered form instead of the generic placeholder screen.
+- The create form now renders:
+  - labeled rows for title, type, priority, tags, and save
+  - focused-row highlighting for keyboard navigation context
+  - `< value >` cycle widgets for type/priority using the shared theme styles
+  - footer hints for `Tab/Shift-Tab`, `Ctrl-s`, `Ctrl-e`, and `Esc`
+  - a discard-confirmation modal whenever `CreateFormState::pending_cancel` is set
+- Added focused create-form view coverage:
+  - placeholder/cycle-widget formatting assertions
+  - a `ratatui::backend::TestBackend` smoke test proving the registered create-form screen renders without panicking
+- Notes for future workers:
+  - The discard-confirmation modal is now visible, but the current interaction still confirms discard via the existing second-`Esc` update flow; if the UX is later tightened to literal `y`/`n` confirmation, wire that through `src/tui/keymap.rs` and `src/tui/update.rs` rather than duplicating modal state in the view layer.
+  - `src/tui/view/create_form.rs` now owns the centered-panel layout and row-formatting helpers; reuse those patterns for future form/modal screens before adding more placeholder-specific rendering in `src/tui/view.rs`.
+- Verification completed for this create-form step:
+  - `mise exec -- cargo test tui::view::create_form -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
+- Completed `ish-1kyq` (`TUI: editor integration (suspend/resume with Drop guard)`).
+- Added the first real TUI editor bridge in `src/tui/editor.rs`:
+  - resolves `$VISUAL` → `$EDITOR` → `vi`
+  - parses shell-style editor commands (including quoted executable names / flags) with `shell-words`
+  - suspends the terminal via a `SuspendedTerminal` Drop guard that leaves the alternate screen, shows the cursor, disables raw mode, flushes stdout, and restores TUI mode on drop
+  - surfaces non-zero exits and spawn failures as `AppError`s so runtime can keep the session alive
+- Updated `src/tui/runtime.rs` so `Msg::EditorRequested(...)` now:
+  - resolves the selected issue's on-disk markdown path from the loaded store cache
+  - opens the real editor instead of emitting the previous placeholder error
+  - always queues `Effect::LoadIssues` after the editor returns, regardless of success or failure
+  - converts the editor result into `Msg::EditorReturned(...)` so the existing status-line/update flow handles success vs. error messaging
+- Added `Store::root()` in `src/core/store.rs` so runtime/editor code can build canonical file paths from the actual store root even when `ish tui` is launched from a nested working directory.
+- Added focused editor helper coverage for default resolution, `$VISUAL` precedence, shell-style quoting, and exit-status formatting.
+- Notes for future workers:
+  - Runtime/editor integration now assumes the effect executor's create flow ordering (`SaveCompleted` → reload → `EditorRequested`) remains FIFO; if you change that ordering later, re-check create-and-edit behavior carefully.
+  - Post-editor refresh still uses the PRD-approved full workspace reload. If later work wants per-issue parse-error recovery after editing, hook it up through the existing `Store::load_one(...)` helper instead of duplicating path/id resolution.
+  - `shell-words` is now the single parser for editor env vars; extend `src/tui/editor.rs` there if you need richer command forms rather than open-coding parsing in runtime.
+- Verification completed for this editor-integration step:
+  - `mise exec -- cargo test tui::editor -- --nocapture`
+  - `mise exec -- cargo test`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-wka9` (`TUI: footer, status line, and help overlay`).
+- Added shared chrome/rendering helpers under `src/tui/view/`:
+  - `footer.rs` for persistent per-screen keybind hints
+  - `status_line.rs` for severity-colored transient/sticky messages
+  - `help.rs` for the full help overlay grouped by board/detail/picker/create-form/global bindings
+- Updated `src/tui/view.rs` to reserve bottom rows for the shared status line + footer across the whole TUI instead of embedding footer chrome inside individual screens.
+- Simplified screen renderers to use the shared footer:
+  - `src/tui/view/issue_detail.rs` no longer renders its own local key block
+  - `src/tui/view/create_form.rs` no longer duplicates footer hints inside the form body
+- Added focused coverage for the new shared view pieces (footer/help/status-line unit tests) and kept the existing create/detail render smoke tests green after the layout change.
+- Notes for future workers:
+  - `Screen::StatusPicker(...)` still falls back to the placeholder renderer until `ish-icc4` lands; the shared footer/help/status-line layout is already in place for that modal to plug into.
+  - If later view work adds more overlays, prefer routing shared key hints through `src/tui/view/footer.rs` rather than embedding ad hoc footer rows inside screen-specific widgets.
+- Verification completed for this shared-chrome step:
+  - `mise exec -- cargo test`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-rlqk` (`TUI: integration smoke tests for effect executor`).
+- Added store-backed TUI smoke coverage in `src/tui/effect_integration.rs`:
+  - create flow round-trip asserts emitted messages, a follow-up `LoadIssues`, and the persisted markdown contents on disk
+  - save flow asserts the status change is written to disk and yields a new etag after reload
+  - stale-etag conflict flow simulates an external file rewrite + store reload before save and asserts `Msg::SaveFailed(Conflict { .. })`
+- Registered the new smoke test module from `src/tui/mod.rs` under `#[cfg(test)]` so the binary crate can exercise crate-internal TUI/store code without adding a separate `lib.rs` target yet.
+- Notes for future workers:
+  - The PRD suggested `tests/tui_effects.rs`, but this project is still binary-only, so the smoke tests currently live in `src/tui/effect_integration.rs`. If a library target is introduced later, these are good candidates to move into Cargo integration tests.
+  - The conflict smoke test only trips after reloading the store cache following the simulated external disk edit; that matches the current store/executor contract, which detects conflicts against the latest loaded etag rather than re-reading from disk during `update(...)` itself.
+- Verification completed for this executor-smoke-test step:
+  - `mise exec -- cargo test tui::effect_integration -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-icc4` (`TUI: status picker modal view`).
+- Added the first real status-picker renderer in `src/tui/view/status_picker.rs`:
+  - centered `Set status` modal sized for the PRD's compact overlay
+  - full status option list using shared `theme::status_style(...)`
+  - selected-row highlighting so the existing picker navigation has visible focus
+- Updated `src/tui/view.rs` so a `Screen::StatusPicker(...)` stacked on top of `Screen::IssueDetail(...)` now renders as a true overlay instead of falling back to the placeholder screen.
+- Added focused status-picker view coverage:
+  - option-list assertions proving all statuses render and the selected row gets the expected marker
+  - a `ratatui::backend::TestBackend` smoke test covering detail-screen + modal layering
+- Notes for future workers:
+  - Overlay rendering in `src/tui/view.rs` is currently a targeted detail+status-picker special case; if more modal screens are introduced later, consider extracting a generic layered-screen renderer rather than expanding the match arm list.
+  - The picker view already consumes shared theme styles, so future status-related visual tweaks should happen in `src/tui/theme.rs` instead of inside the modal renderer.
+- Verification completed for this status-picker step:
+  - `mise exec -- cargo test tui::view::status_picker -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-byfp` (`TUI: unit tests for update`).
+- Expanded `src/tui/update.rs` coverage from a single smoke test to a broader pure-update suite covering:
+  - board no-wrap navigation, per-column cursor memory, empty-column handling, and half-page/top/bottom movement
+  - `IssuesLoaded(...)` cache replacement plus board cursor clamping while archived/scrapped issues remain filtered from buckets
+  - screen-stack transitions for detail, status picker, help, and create-form flows
+  - status-save message handling, including conflict errors and the current executor-owned reload contract
+  - status-line expiration, sticky-error replacement rules, create-form discard confirmation, and quit handling
+- Notes for future workers:
+  - The update tests now intentionally pin the current contract where `Msg::SaveCompleted(...)` only updates the success banner; the actual reload still comes from the effect executor's follow-up `Msg::IssuesLoaded(...)`. If you later move reload responsibility into `update`, adjust these tests deliberately instead of assuming both layers should reload.
+  - `src/tui/update.rs` now has small local test helpers (`todo_model(...)`, `board_state(...)`, `top_screen(...)`) to keep assertions focused on observable model/effect behavior; reuse those patterns if the remaining TUI polish work adds more update tests.
+- Verification completed for this update-test step:
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-353g` (`TUI: terminal-too-small error rendering`).
+- Finished the minimum-terminal UX promised in the PRD:
+  - `src/tui/view.rs` now short-circuits to a centered `Terminal too small (minimum 80×20)` message whenever `model.term_too_small` is set
+  - the too-small path intentionally skips normal screen rendering plus the shared status line/footer so cramped terminals do not show broken partial chrome
+  - `src/tui/update.rs` now includes the requested resize regression test proving the flag flips both ways across small/large terminal dimensions
+- Notes for future workers:
+  - The view-level too-small test currently asserts that normal chrome text like the status line and `? help` footer are absent, so if you intentionally redesign the cramped-terminal UX, update that test alongside the rendering contract rather than loosening it accidentally.
+  - `update` already owned the `term_too_small` state transition before this task; future layout work should keep that state in the pure update layer and treat `view::draw(...)` as a pure consumer of the flag.
+- Verification completed for this minimum-terminal step:
+  - `mise exec -- cargo test terminal_too_small -- --nocapture`
+  - `mise run ci`
+  - `mise exec -- ish check`
+- Completed `ish-qevm` (`TUI: unit tests for keymap`).
+- Expanded `src/tui/keymap.rs` coverage with per-screen binding tests for:
+  - board navigation, refresh/create/open, help, and quit bindings
+  - detail scrolling/edit/status/back bindings
+  - status-picker navigation/submit/cancel bindings
+  - create-form focus, submit, selector cycling, text-edit, help, and quit bindings
+  - help-overlay key handling plus a cross-screen leak test for create-form-only shortcuts
+- Notes for future workers:
+  - The keymap tests intentionally treat the help overlay as a special case because help consumes any non-global key as `PopScreen`; if the overlay contract changes later, update the leak assertions deliberately rather than expecting help to behave like the other screens.
+  - Create-form keymap coverage is split by `focused_field`, so if future UX work adds more field-specific bindings, extend the matching focused-field test cases instead of collapsing them into one generic create-form screen fixture.
+- Verification completed for this keymap-test step:
+  - `mise exec -- cargo test tui::keymap -- --nocapture`
+  - `mise exec -- ish check`
+  - `mise run ci`
+- Epic status: all planned TUI kanban child ishes from `.local/prds/1777086527-tui-kanban.md` are now complete, and the parent epic `ish-q6t1` has been marked completed after a final green `mise run ci` pass.
+- Completed `ish--u501` (`TUI: create-form discard modal uses explicit y/n confirmation`).
+- Closed a small post-epic PRD mismatch in the create-form cancel flow:
+  - `src/tui/keymap.rs` now treats `CreateFormState::pending_cancel` as a true modal state and maps `y`/`Y` to discard, `n`/`N`/`Esc` to keep editing, while suppressing normal field-edit bindings underneath the modal.
+  - `src/tui/update.rs` now uses explicit discard-confirmation messages so the form only closes on affirmative confirmation and clears the prompt/status line cleanly when the user keeps editing.
+  - `src/tui/view/create_form.rs`, `src/tui/view/footer.rs`, and `src/tui/view/help.rs` now consistently describe the live `y`/`n` discard UX instead of the older second-`Esc` behavior.
+- Notes for future workers:
+  - The discard-confirmation modal is now backed by dedicated `Msg::ConfirmDiscardCreateForm` / `Msg::CancelDiscardCreateForm` variants; prefer extending that explicit modal contract instead of reintroducing overloaded `PopScreen` behavior.
+  - While `pending_cancel` is set, create-form key handling intentionally suppresses normal editing/navigation keys so the confirmation prompt behaves like a real modal; preserve that if future form features add more shortcuts.
+- Verification completed for this discard-confirmation follow-up:
+  - `mise exec -- cargo test tui::keymap -- --nocapture`
+  - `mise exec -- cargo test tui::update -- --nocapture`
+  - `mise exec -- cargo test tui::view::create_form -- --nocapture`
+  - `mise exec -- cargo test tui::view::footer -- --nocapture`
+  - `mise exec -- cargo test tui::view::help -- --nocapture`
+  - `mise run ci`
