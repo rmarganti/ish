@@ -94,8 +94,7 @@ pub fn card_border(selected: bool, focused_column: bool) -> Style {
 pub fn column_header(active: bool) -> Style {
     if active {
         Style::default()
-            .fg(Color::White)
-            .bg(Color::DarkGray)
+            .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
@@ -207,7 +206,8 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
-        assert_eq!(column_header(true).bg, Some(Color::DarkGray));
+        assert_eq!(column_header(true).fg, Some(Color::Cyan));
+        assert_eq!(column_header(true).bg, None);
         assert_eq!(footer_key().fg, Some(Color::Cyan));
         assert_eq!(footer_desc().fg, Some(Color::Gray));
     }

@@ -77,23 +77,20 @@ fn form_lines(model: &Model, state: &CreateFormState) -> Vec<Line<'static>> {
 }
 
 fn form_row(label: &str, value: Line<'static>, focused: bool) -> Line<'static> {
-    let mut spans = vec![Span::styled(
-        format!("{label:<10} "),
+    let label_style = if focused {
+        Style::default()
+            .fg(ratatui::style::Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
         Style::default()
             .fg(ratatui::style::Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    )];
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let mut spans = vec![Span::styled(format!("{label:<10} "), label_style)];
     spans.extend(value.spans);
 
-    let mut line = Line::from(spans);
-    if focused {
-        line = line.patch_style(
-            Style::default()
-                .bg(ratatui::style::Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    }
-    line
+    Line::from(spans)
 }
 
 fn field_text(value: &str, placeholder: &str) -> Vec<Span<'static>> {

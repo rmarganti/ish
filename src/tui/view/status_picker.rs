@@ -34,7 +34,7 @@ fn option_lines(model: &Model, state: &PickerState) -> Vec<Line<'static>> {
         .enumerate()
         .map(|(index, status)| {
             let selected = index == state.selected;
-            let mut line = Line::from(vec![
+            Line::from(vec![
                 Span::styled(
                     if selected { "› " } else { "  " },
                     if selected {
@@ -49,17 +49,7 @@ fn option_lines(model: &Model, state: &PickerState) -> Vec<Line<'static>> {
                     status_label(*status).to_string(),
                     theme::status_style(&model.config, *status),
                 ),
-            ]);
-
-            if selected {
-                line = line.patch_style(
-                    Style::default()
-                        .bg(ratatui::style::Color::DarkGray)
-                        .add_modifier(Modifier::BOLD),
-                );
-            }
-
-            line
+            ])
         })
         .collect()
 }

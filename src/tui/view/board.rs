@@ -95,9 +95,7 @@ fn draw_card(
         .borders(Borders::ALL)
         .border_style(border_style)
         .style(if selected {
-            Style::default()
-                .bg(ratatui::style::Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
+            Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         });
