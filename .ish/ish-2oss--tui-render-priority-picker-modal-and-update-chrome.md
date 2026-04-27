@@ -1,13 +1,13 @@
 ---
 # ish-2oss
 title: 'TUI: render priority picker modal and update chrome'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-27T20:51:38.077861190Z
-updated_at: 2026-04-27T20:51:38.077861190Z
+updated_at: 2026-04-27T21:02:42.979013Z
 parent: ish-4smz
 blocked_by:
 - ish-07aa
@@ -34,6 +34,21 @@ The implementation recommendation from investigation was to avoid a second one-o
 
 ## Verification
 - `mise exec -- cargo test tui::view::status_picker -- --nocapture`
+- `mise exec -- cargo test tui::view::footer -- --nocapture`
+- `mise exec -- cargo test tui::view::help -- --nocapture`
+- `mise exec -- ish check`
+- `mise run ci`
+
+
+## Implementation notes
+- Added a shared modal helper in `src/tui/view/picker_modal.rs` plus a new `src/tui/view/priority_picker.rs` so status and priority pickers reuse the same centered modal chrome while keeping their row labeling and coloring specific to the selected field.
+- Generalized `src/tui/view.rs` from a one-off detail+status match into stack-based rendering: full-screen screens draw in order, and picker screens now overlay on top of the already-rendered detail screen without another bespoke branch.
+- Updated `src/tui/view/footer.rs` and `src/tui/view/help.rs` so issue detail advertises `p priority` and the help overlay documents both the new detail binding and the priority-picker controls.
+- Added focused regression coverage for the new priority picker view plus the updated footer/help text, and kept the existing status-picker render smoke tests green through the shared modal refactor.
+
+## Validation
+- `mise exec -- cargo test tui::view::status_picker -- --nocapture`
+- `mise exec -- cargo test tui::view::priority_picker -- --nocapture`
 - `mise exec -- cargo test tui::view::footer -- --nocapture`
 - `mise exec -- cargo test tui::view::help -- --nocapture`
 - `mise exec -- ish check`

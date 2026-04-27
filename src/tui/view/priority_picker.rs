@@ -1,22 +1,22 @@
 #![allow(dead_code)]
 
-use crate::tui::view::{picker_modal, status_label};
-use crate::tui::{Model, PickerState, theme};
+use crate::tui::view::{picker_modal, priority_label};
+use crate::tui::{Model, PriorityPickerState, theme};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::prelude::{Line, Span};
 use ratatui::style::{Modifier, Style};
 
-pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &PickerState) {
-    picker_modal::draw(frame, area, "Set status", option_lines(model, state));
+pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &PriorityPickerState) {
+    picker_modal::draw(frame, area, "Set priority", option_lines(model, state));
 }
 
-fn option_lines(model: &Model, state: &PickerState) -> Vec<Line<'static>> {
+fn option_lines(model: &Model, state: &PriorityPickerState) -> Vec<Line<'static>> {
     state
         .options
         .iter()
         .enumerate()
-        .map(|(index, status)| {
+        .map(|(index, priority)| {
             let selected = index == state.selected;
             Line::from(vec![
                 Span::styled(
@@ -30,8 +30,8 @@ fn option_lines(model: &Model, state: &PickerState) -> Vec<Line<'static>> {
                     },
                 ),
                 Span::styled(
-                    status_label(*status).to_string(),
-                    theme::status_style(&model.config, *status),
+                    priority_label(*priority).to_string(),
+                    theme::priority_style(&model.config, *priority),
                 ),
             ])
         })
@@ -42,17 +42,17 @@ fn option_lines(model: &Model, state: &PickerState) -> Vec<Line<'static>> {
 mod tests {
     use super::option_lines;
     use crate::test_support::tui::{IshBuilder, model_with_board};
-    use crate::tui::{DetailState, PickerState, Screen, Status, view};
+    use crate::tui::{DetailState, Priority, PriorityPickerState, Screen, view};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
     #[test]
-    fn option_lines_render_all_statuses_and_highlight_selected_row() {
+    fn option_lines_render_all_priorities_and_highlight_selected_row() {
         let model = model_with_board(vec![]);
-        let state = PickerState {
+        let state = PriorityPickerState {
             issue_id: "ish-detail".to_string(),
-            options: Status::ALL.to_vec(),
-            selected: 2,
+            options: Priority::ALL.to_vec(),
+            selected: 1,
         };
 
         let rendered = option_lines(&model, &state)
@@ -60,16 +60,17 @@ mod tests {
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
 
-        assert_eq!(rendered[0], "  Draft");
-        assert_eq!(rendered[2], "› In Progress");
-        assert_eq!(rendered[4], "  Scrapped");
+        assert_eq!(rendered[0], "  Critical");
+        assert_eq!(rendered[1], "› High");
+        assert_eq!(rendered[4], "  Deferred");
     }
 
     #[test]
-    fn status_picker_renders_on_top_of_detail_screen_without_panicking() {
+    fn priority_picker_renders_on_top_of_detail_screen_without_panicking() {
         let issue = IshBuilder::new("detail")
             .title("Detail view")
             .status("todo")
+            .priority(Priority::High)
             .body("Body")
             .build();
         let mut model = model_with_board(vec![issue]);
@@ -78,10 +79,10 @@ mod tests {
                 id: "ish-detail".to_string(),
                 scroll: 0,
             }),
-            Screen::StatusPicker(PickerState {
+            Screen::PriorityPicker(PriorityPickerState {
                 issue_id: "ish-detail".to_string(),
-                options: Status::ALL.to_vec(),
-                selected: 1,
+                options: Priority::ALL.to_vec(),
+                selected: 3,
             }),
         ];
 
@@ -90,6 +91,6 @@ mod tests {
 
         terminal
             .draw(|frame| view::draw(frame, &model))
-            .expect("status picker should render");
+            .expect("priority picker should render");
     }
 }

@@ -1,13 +1,13 @@
 ---
 # ish-4smz
 title: 'TUI: detail-view priority picker'
-status: todo
+status: completed
 type: feature
 priority: high
 tags:
 - tui
 created_at: 2026-04-27T20:51:12.929269442Z
-updated_at: 2026-04-27T20:51:12.929269442Z
+updated_at: 2026-04-27T21:02:58.562963Z
 ---
 
 ## Context
@@ -28,6 +28,22 @@ The recommended approach is to add a detail-view `p` binding for priority, use a
 - Track the work in child tasks covering the state/save flow and the modal rendering/chrome updates.
 
 ## Verification
-- [ ] Child tasks are complete.
-- [ ] From issue detail, `p` opens a priority picker, navigation matches the status picker, `Enter` saves, and `q`/`Esc` cancels.
-- [ ] `mise run ci` passes.
+- [x] Child tasks are complete.
+- [x] From issue detail, `p` opens a priority picker, navigation matches the status picker, `Enter` saves, and `q`/`Esc` cancels.
+- [x] `mise run ci` passes.
+
+## Implementation notes
+- Child task `ish-07aa` landed the non-visual message/state/save path for priority changes, including `p` key handling in detail, a dedicated `PriorityPicker` screen state, and store-backed priority persistence through `Effect::SaveIssue`.
+- Child task `ish-2oss` finished the visible UX with a real priority-picker modal, a shared picker modal renderer, generalized stacked-screen rendering in `src/tui/view.rs`, and updated footer/help chrome so the new interaction is discoverable.
+- The resulting flow now mirrors status changes end to end: from issue detail, `p` opens a modal overlay, picker navigation uses the same controls as status, and submit/cancel behavior stays on the existing optimistic-concurrency save path.
+
+## Validation
+- `mise exec -- cargo test tui::keymap -- --nocapture`
+- `mise exec -- cargo test tui::update -- --nocapture`
+- `mise exec -- cargo test tui::effect -- --nocapture`
+- `mise exec -- cargo test tui::view::status_picker -- --nocapture`
+- `mise exec -- cargo test tui::view::priority_picker -- --nocapture`
+- `mise exec -- cargo test tui::view::footer -- --nocapture`
+- `mise exec -- cargo test tui::view::help -- --nocapture`
+- `mise exec -- ish check`
+- `mise run ci`
