@@ -90,11 +90,12 @@ fn draw_card(
         return;
     }
 
-    let border_style = theme::card_border(selected, focused_column);
+    let visually_selected = selected && focused_column;
+    let border_style = theme::card_border(visually_selected, focused_column);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
-        .style(if selected {
+        .style(if visually_selected {
             Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
@@ -115,7 +116,8 @@ fn draw_card(
         .map(|status| theme::status_style(&model.config, status))
         .unwrap_or_default();
 
-    let title = card_title_line(&ish.title, inner.width, selected).patch_style(title_status);
+    let title =
+        card_title_line(&ish.title, inner.width, visually_selected).patch_style(title_status);
     let meta = card_meta_line(model, &ish.id, priority, ish_type, first_tag);
     let lines = vec![title, meta];
 
