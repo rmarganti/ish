@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::tui::model::BoardRow;
 use crate::tui::view::{
     card_meta_line, card_title_line, priority_from_ish, status_from_ish, status_label,
     type_from_ish,
@@ -8,11 +9,19 @@ use crate::tui::{BOARD_COLUMNS, BoardState, Model, theme};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::{Alignment, Line};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 const CARD_HEIGHT: u16 = 4;
 const MIN_HEADER_HEIGHT: u16 = 3;
+/// Width of one level of tree indentation in the board column gutter.
+/// Horizontal space in board columns is precious, so each level only takes a
+/// single cell. The connector glyph itself is rendered as a one-cell `└` /
+/// `├` to fit.
+const INDENT_PER_LEVEL: u16 = 1;
+/// Minimum card content width we will preserve before falling back to drawing
+/// a child card without an indent gutter.
+const MIN_CARD_WIDTH: u16 = 12;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &BoardState) {
     let columns =
@@ -64,14 +73,14 @@ fn draw_column(
     let card_areas =
         Layout::vertical(vec![Constraint::Length(CARD_HEIGHT); end - start]).split(inner);
 
-    for (visible_index, ish) in bucket[start..end].iter().enumerate() {
+    for (visible_index, row) in bucket[start..end].iter().enumerate() {
         let absolute_index = start + visible_index;
         let selected = state.column_cursors[column_index] == Some(absolute_index);
         draw_card(
             frame,
             card_areas[visible_index],
             model,
-            ish,
+            row,
             selected,
             active,
         );
@@ -82,13 +91,23 @@ fn draw_card(
     frame: &mut Frame<'_>,
     area: Rect,
     model: &Model,
-    ish: &crate::model::ish::Ish,
+    row: &BoardRow<'_>,
     selected: bool,
     focused_column: bool,
 ) {
     if area.height == 0 || area.width == 0 {
         return;
     }
+
+    let depth = row.depth() as u16;
+    let (card_area, gutter_area) = split_indent(area, depth);
+
+    if let Some(gutter) = gutter_area {
+        draw_tree_gutter(frame, gutter, &row.ancestors_have_more, row.is_last);
+    }
+
+    let area = card_area;
+    let ish = row.ish;
 
     let visually_selected = selected && focused_column;
     let border_style = theme::card_border(visually_selected, focused_column);
@@ -122,4 +141,89 @@ fn draw_card(
     let lines = vec![title, meta];
 
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+/// Reserve a left gutter for parent–child indentation. Returns the (card,
+/// gutter) areas. Falls back to no gutter when the column is too narrow to
+/// preserve a usable card width.
+fn split_indent(area: Rect, depth: u16) -> (Rect, Option<Rect>) {
+    if depth == 0 {
+        return (area, None);
+    }
+    let gutter_width = depth.saturating_mul(INDENT_PER_LEVEL);
+    if gutter_width == 0 || area.width <= gutter_width.saturating_add(MIN_CARD_WIDTH) {
+        return (area, None);
+    }
+    let parts = Layout::horizontal([
+        Constraint::Length(gutter_width),
+        Constraint::Min(MIN_CARD_WIDTH),
+    ])
+    .split(area);
+    (parts[1], Some(parts[0]))
+}
+
+/// Draw the dimmed tree connectors and ancestor lines into the gutter.
+fn draw_tree_gutter(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    ancestors_have_more: &[bool],
+    is_last: bool,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let depth = ancestors_have_more.len();
+    if depth == 0 {
+        return;
+    }
+
+    let style = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::DIM);
+    let buf = frame.buffer_mut();
+    let right_edge = area.x + area.width;
+
+    // Vertical bars for every ancestor whose chain is still continuing. The
+    // last entry of `ancestors_have_more` corresponds to the current node's
+    // immediate parent — that one is encoded by `is_last` and rendered as the
+    // connector glyph below, so we skip it here (matches CLI semantics).
+    for (i, &has_more) in ancestors_have_more
+        .iter()
+        .take(depth.saturating_sub(1))
+        .enumerate()
+    {
+        if !has_more {
+            continue;
+        }
+        let x = area.x + (i as u16) * INDENT_PER_LEVEL;
+        if x >= right_edge {
+            break;
+        }
+        for dy in 0..area.height {
+            buf.set_string(x, area.y + dy, "│", style);
+        }
+    }
+
+    // Current node connector at column (depth - 1) * INDENT_PER_LEVEL.
+    let connector_x = area.x + ((depth - 1) as u16).saturating_mul(INDENT_PER_LEVEL);
+    if connector_x >= right_edge {
+        return;
+    }
+
+    // Cards are 4 rows tall: 0 = top border, 1 = title, 2 = meta, 3 = bottom
+    // border. Place the connector glyph on the title row to align with the
+    // ish title.
+    let title_row = 1u16.min(area.height.saturating_sub(1));
+    for dy in 0..area.height {
+        let row_y = area.y + dy;
+        if dy == title_row {
+            let glyph = if is_last { "└" } else { "├" };
+            buf.set_string(connector_x, row_y, glyph, style);
+        } else if dy < title_row || !is_last {
+            // Above the title we always extend a vertical bar upward; below
+            // the title we only continue when this row is not the last among
+            // its siblings (so the bar reaches the next sibling card).
+            buf.set_string(connector_x, row_y, "│", style);
+        }
+    }
 }

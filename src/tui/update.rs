@@ -423,6 +423,7 @@ fn selected_board_issue<'a>(model: &'a Model, state: &BoardState) -> Option<&'a 
         .bucket_for_status(BOARD_COLUMNS[column])
         .into_iter()
         .nth(cursor)
+        .map(|row| row.ish)
 }
 
 fn find_issue<'a>(model: &'a Model, id: &str) -> Option<&'a Ish> {
