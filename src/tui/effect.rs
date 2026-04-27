@@ -141,7 +141,7 @@ fn priority_to_store_value(priority: Priority) -> String {
 }
 
 fn priority_to_store_update_value(priority: Priority) -> Option<String> {
-    Some(priority_to_store_value(priority))
+    Some(priority.as_str().to_string())
 }
 
 #[cfg(test)]

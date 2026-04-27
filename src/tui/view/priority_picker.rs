@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::tui::view::{picker_modal, priority_label};
 use crate::tui::{Model, PriorityPickerState, theme};
 use ratatui::Frame;

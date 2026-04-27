@@ -17,8 +17,8 @@ pub fn map_key(screen: &Screen, key: KeyEvent) -> Option<Msg> {
     match screen {
         Screen::Board(_) => map_board_key(key),
         Screen::IssueDetail(_) => map_detail_key(key),
-        Screen::StatusPicker(_) => map_picker_key(key, false),
-        Screen::PriorityPicker(_) => map_picker_key(key, true),
+        Screen::StatusPicker(_) => map_status_picker_key(key),
+        Screen::PriorityPicker(_) => map_priority_picker_key(key),
         Screen::CreateForm(state) => map_create_form_key(state, key),
         Screen::Help(_) => Some(Msg::PopScreen),
     }
@@ -190,7 +190,15 @@ fn map_detail_key(key: KeyEvent) -> Option<Msg> {
     }
 }
 
-fn map_picker_key(key: KeyEvent, submit_priority: bool) -> Option<Msg> {
+fn map_status_picker_key(key: KeyEvent) -> Option<Msg> {
+    map_picker_key(key, Msg::SubmitStatusChange)
+}
+
+fn map_priority_picker_key(key: KeyEvent) -> Option<Msg> {
+    map_picker_key(key, Msg::SubmitPriorityChange)
+}
+
+fn map_picker_key(key: KeyEvent, submit_msg: Msg) -> Option<Msg> {
     match key {
         KeyEvent {
             code: KeyCode::Char('j'),
@@ -218,11 +226,7 @@ fn map_picker_key(key: KeyEvent, submit_priority: bool) -> Option<Msg> {
             code: KeyCode::Enter,
             modifiers: KeyModifiers::NONE,
             ..
-        } => Some(if submit_priority {
-            Msg::SubmitPriorityChange
-        } else {
-            Msg::SubmitStatusChange
-        }),
+        } => Some(submit_msg),
         KeyEvent {
             code: KeyCode::Char('q'),
             modifiers: KeyModifiers::NONE,

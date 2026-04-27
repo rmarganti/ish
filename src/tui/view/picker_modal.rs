@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::prelude::Line;
