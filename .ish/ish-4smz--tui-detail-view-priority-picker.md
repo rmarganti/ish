@@ -7,7 +7,7 @@ priority: high
 tags:
 - tui
 created_at: 2026-04-27T20:51:12.929269442Z
-updated_at: 2026-04-27T21:02:58.562963Z
+updated_at: 2026-04-27T21:07:10.198181Z
 ---
 
 ## Context

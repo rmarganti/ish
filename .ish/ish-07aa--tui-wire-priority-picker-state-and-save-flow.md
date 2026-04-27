@@ -3,11 +3,11 @@
 title: 'TUI: wire priority picker state and save flow'
 status: completed
 type: task
-priority: high
+priority: normal
 tags:
 - tui
 created_at: 2026-04-27T20:51:27.111321459Z
-updated_at: 2026-04-27T20:58:21.418872Z
+updated_at: 2026-04-27T21:03:42.687009Z
 parent: ish-4smz
 ---
 

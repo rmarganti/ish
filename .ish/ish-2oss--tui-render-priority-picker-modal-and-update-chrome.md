@@ -3,11 +3,11 @@
 title: 'TUI: render priority picker modal and update chrome'
 status: completed
 type: task
-priority: high
+priority: normal
 tags:
 - tui
 created_at: 2026-04-27T20:51:38.077861190Z
-updated_at: 2026-04-27T21:02:42.979013Z
+updated_at: 2026-04-27T21:06:55.436559Z
 parent: ish-4smz
 blocked_by:
 - ish-07aa
