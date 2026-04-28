@@ -18,7 +18,7 @@ fn footer_line(model: &Model) -> Line<'static> {
     match model.screens.last() {
         Some(Screen::Board(_)) => hints(&[
             ("h/j/k/l", "move"),
-            ("enter", "open"),
+            ("enter/space", "open"),
             ("c", "create"),
             ("r", "refresh"),
             ("?", "help"),
@@ -83,7 +83,10 @@ mod tests {
     #[test]
     fn footer_hints_follow_active_screen() {
         let mut model = model_with_board(vec![]);
-        assert!(footer_line(&model).to_string().contains("open"));
+        assert_eq!(
+            footer_line(&model).to_string(),
+            "h/j/k/l move  enter/space open  c create  r refresh  ? help  q quit"
+        );
 
         model.screens.push(Screen::Help(HelpState));
         assert_eq!(footer_line(&model).to_string(), "any key close");
