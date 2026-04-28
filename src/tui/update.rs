@@ -3,8 +3,8 @@
 use crate::model::ish::{Ish, normalize_tag};
 use crate::tui::{
     BOARD_COLUMNS, BoardState, CreateFormState, DetailState, Effect, HelpState, IssueDraft,
-    IssuePatch, Model, Msg, PickerState, Priority, SaveFailure, Screen, Severity, Status,
-    StatusLine,
+    IssuePatch, Model, Msg, PickerState, Priority, PriorityPickerState, SaveFailure, Screen,
+    Severity, Status, StatusLine,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -30,6 +30,7 @@ pub fn update(mut model: Model, msg: Msg) -> (Model, Vec<Effect>) {
         Screen::Board(state) => update_board(model, state, msg),
         Screen::IssueDetail(state) => update_detail(model, state, msg),
         Screen::StatusPicker(state) => update_picker(model, state, msg),
+        Screen::PriorityPicker(state) => update_priority_picker(model, state, msg),
         Screen::CreateForm(state) => update_create_form(model, state, msg),
         Screen::Help(state) => update_help(model, state, msg),
     }
@@ -171,6 +172,31 @@ fn update_detail(mut model: Model, mut state: DetailState, msg: Msg) -> (Model, 
                 return (model, effects);
             }
         }
+        Msg::OpenPriorityPicker => {
+            if let Some(issue) = find_issue(&model, &state.id) {
+                let options = Priority::ALL.to_vec();
+                let selected = options
+                    .iter()
+                    .position(|priority| {
+                        priority_from_issue(issue) == Some(*priority)
+                            || (issue.priority.is_none() && *priority == Priority::Normal)
+                    })
+                    .unwrap_or_else(|| {
+                        options
+                            .iter()
+                            .position(|priority| *priority == Priority::Normal)
+                            .unwrap_or(0)
+                    });
+                model
+                    .screens
+                    .push(Screen::PriorityPicker(PriorityPickerState {
+                        issue_id: state.id.clone(),
+                        options,
+                        selected,
+                    }));
+                return (model, effects);
+            }
+        }
         Msg::PopScreen => {
             pop_screen(&mut model);
             return (model, effects);
@@ -206,6 +232,7 @@ fn update_picker(mut model: Model, mut state: PickerState, msg: Msg) -> (Model, 
                     patch: IssuePatch {
                         id: state.issue_id.clone(),
                         status: Some(status),
+                        priority: None,
                     },
                     etag,
                 });
@@ -221,6 +248,53 @@ fn update_picker(mut model: Model, mut state: PickerState, msg: Msg) -> (Model, 
     }
 
     replace_top_screen(&mut model, Screen::StatusPicker(state));
+    (model, effects)
+}
+
+fn update_priority_picker(
+    mut model: Model,
+    mut state: PriorityPickerState,
+    msg: Msg,
+) -> (Model, Vec<Effect>) {
+    let mut effects = Vec::new();
+
+    match msg {
+        Msg::MoveUp => {
+            state.selected = state.selected.saturating_sub(1);
+        }
+        Msg::MoveDown => {
+            let max_index = state.options.len().saturating_sub(1);
+            state.selected = (state.selected + 1).min(max_index);
+        }
+        Msg::JumpTop => state.selected = 0,
+        Msg::JumpBottom => state.selected = state.options.len().saturating_sub(1),
+        Msg::SubmitPriorityChange => {
+            if let Some(priority) = state.options.get(state.selected).copied() {
+                let etag = model
+                    .etags
+                    .get(&state.issue_id)
+                    .cloned()
+                    .unwrap_or_default();
+                effects.push(Effect::SaveIssue {
+                    patch: IssuePatch {
+                        id: state.issue_id.clone(),
+                        status: None,
+                        priority: Some(priority),
+                    },
+                    etag,
+                });
+                pop_screen(&mut model);
+                return (model, effects);
+            }
+        }
+        Msg::PopScreen => {
+            pop_screen(&mut model);
+            return (model, effects);
+        }
+        _ => {}
+    }
+
+    replace_top_screen(&mut model, Screen::PriorityPicker(state));
     (model, effects)
 }
 
@@ -430,6 +504,10 @@ fn find_issue<'a>(model: &'a Model, id: &str) -> Option<&'a Ish> {
     model.issues.iter().find(|issue| issue.id == id)
 }
 
+fn priority_from_issue(issue: &Ish) -> Option<Priority> {
+    issue.priority.as_deref().and_then(Priority::from_str)
+}
+
 fn detail_max_scroll(model: &Model, state: &DetailState) -> u16 {
     find_issue(model, &state.id)
         .map(|issue| issue.body.lines().count().saturating_sub(1) as u16)
@@ -579,7 +657,8 @@ mod tests {
     use crate::test_support::tui::{IshBuilder, dispatch, model_with_board};
     use crate::tui::{
         BoardState, CreateFormState, DetailState, Effect, HelpState, IssuePatch, Model, Msg,
-        PickerState, SaveFailure, SaveSuccess, Screen, Severity, Status, StatusLine,
+        PickerState, Priority, PriorityPickerState, SaveFailure, SaveSuccess, Screen, Severity,
+        Status, StatusLine,
     };
     use std::time::{Duration, Instant};
 
@@ -781,6 +860,50 @@ mod tests {
                 patch: IssuePatch {
                     id: "ish-todo".to_string(),
                     status: Some(Status::InProgress),
+                    priority: None,
+                },
+                etag: expected_etag,
+            }]
+        );
+    }
+
+    #[test]
+    fn priority_picker_defaults_missing_priority_to_normal_and_submits_priority_save() {
+        let mut model = model_with_board(vec![IshBuilder::new("todo").status("todo").build()]);
+        model.screens = vec![
+            Screen::Board(BoardState {
+                selected_column: 1,
+                column_cursors: [None, Some(0), None, None],
+                column_offsets: [0; 4],
+            }),
+            Screen::IssueDetail(DetailState {
+                id: "ish-todo".to_string(),
+                scroll: 0,
+            }),
+        ];
+        let expected_etag = model.etags.get("ish-todo").cloned().unwrap();
+
+        let (model, effects) = update(model, Msg::OpenPriorityPicker);
+
+        assert!(effects.is_empty());
+        match top_screen(&model) {
+            Screen::PriorityPicker(PriorityPickerState { selected, .. }) => {
+                assert_eq!(*selected, 2);
+            }
+            other => panic!("expected priority picker, got {other:?}"),
+        }
+
+        let (model, effects) = update(model, Msg::SubmitPriorityChange);
+
+        assert_eq!(model.screens.len(), 2);
+        assert!(matches!(top_screen(&model), Screen::IssueDetail(_)));
+        assert_eq!(
+            effects,
+            vec![Effect::SaveIssue {
+                patch: IssuePatch {
+                    id: "ish-todo".to_string(),
+                    status: None,
+                    priority: Some(Priority::Normal),
                 },
                 etag: expected_etag,
             }]

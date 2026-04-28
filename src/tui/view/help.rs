@@ -42,12 +42,19 @@ fn help_lines() -> Vec<Line<'static>> {
         binding_line("Ctrl-u / Ctrl-d", "half-page scroll"),
         binding_line("e", "edit in $EDITOR"),
         binding_line("s", "open status picker"),
+        binding_line("p", "open priority picker"),
         binding_line("q / Esc", "back to board"),
         Line::default(),
         section_title("Status picker"),
         binding_line("j / k, arrows", "move selection"),
         binding_line("Ctrl-n / Ctrl-p", "move selection"),
         binding_line("Enter", "save selected status"),
+        binding_line("q / Esc", "cancel"),
+        Line::default(),
+        section_title("Priority picker"),
+        binding_line("j / k, arrows", "move selection"),
+        binding_line("Ctrl-n / Ctrl-p", "move selection"),
+        binding_line("Enter", "save selected priority"),
         binding_line("q / Esc", "cancel"),
         Line::default(),
         section_title("Create form"),
@@ -96,6 +103,9 @@ mod tests {
         assert!(rendered.contains("Board"));
         assert!(rendered.contains("Issue detail"));
         assert!(rendered.contains("Status picker"));
+        assert!(rendered.contains("Priority picker"));
+        assert!(rendered.contains("open priority picker"));
+        assert!(rendered.contains("save selected priority"));
         assert!(rendered.contains("Create form"));
         assert!(rendered.contains("press any key to close"));
     }

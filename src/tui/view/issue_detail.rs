@@ -7,9 +7,11 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::{Line, Span};
 use ratatui::style::{Modifier, Style};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &DetailState) {
+    frame.render_widget(Clear, area);
+
     let Some(issue) = model.issues.iter().find(|issue| issue.id == state.id) else {
         draw_missing_issue(frame, area, &state.id);
         return;
@@ -236,5 +238,44 @@ mod tests {
         terminal
             .draw(|frame| view::draw(frame, &model))
             .expect("detail screen should render");
+    }
+
+    #[test]
+    fn detail_screen_clears_board_contents_beneath_it() {
+        let detail_issue = IshBuilder::new("detail")
+            .title("Detail view")
+            .status("in-progress")
+            .body("Body")
+            .build();
+        let board_issue = IshBuilder::new("board-only")
+            .title("BOARD GHOST TEXT")
+            .status("todo")
+            .build();
+        let mut model = model_with_board(vec![detail_issue, board_issue]);
+        model.screens = vec![
+            Screen::Board(Default::default()),
+            Screen::IssueDetail(DetailState {
+                id: "ish-detail".to_string(),
+                scroll: 0,
+            }),
+        ];
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| view::draw(frame, &model))
+            .expect("detail screen should render");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(!rendered.contains("BOARD GHOST TEXT"));
+        assert!(!rendered.contains(" Todo ("));
     }
 }

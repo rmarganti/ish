@@ -179,6 +179,13 @@ pub struct PickerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PriorityPickerState {
+    pub issue_id: String,
+    pub options: Vec<Priority>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateFormState {
     pub title: String,
     pub ish_type: IshType,
@@ -209,6 +216,7 @@ pub enum Screen {
     Board(BoardState),
     IssueDetail(DetailState),
     StatusPicker(PickerState),
+    PriorityPicker(PriorityPickerState),
     CreateForm(CreateFormState),
     Help(HelpState),
 }

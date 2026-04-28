@@ -28,10 +28,11 @@ fn footer_line(model: &Model) -> Line<'static> {
             ("j/k", "scroll"),
             ("e", "edit"),
             ("s", "status"),
+            ("p", "priority"),
             ("?", "help"),
             ("q", "back"),
         ]),
-        Some(Screen::StatusPicker(_)) => hints(&[
+        Some(Screen::StatusPicker(_)) | Some(Screen::PriorityPicker(_)) => hints(&[
             ("j/k", "move"),
             ("enter", "choose"),
             ("esc", "cancel"),
@@ -77,7 +78,7 @@ fn hints(items: &[(&str, &str)]) -> Line<'static> {
 mod tests {
     use super::footer_line;
     use crate::test_support::tui::model_with_board;
-    use crate::tui::{CreateFormState, HelpState, Screen};
+    use crate::tui::{CreateFormState, DetailState, HelpState, Screen};
 
     #[test]
     fn footer_hints_follow_active_screen() {
@@ -98,6 +99,20 @@ mod tests {
         assert_eq!(
             footer_line(&model).to_string(),
             "y discard  n keep editing  esc keep editing"
+        );
+    }
+
+    #[test]
+    fn detail_footer_advertises_priority_picker() {
+        let mut model = model_with_board(vec![]);
+        model.screens.push(Screen::IssueDetail(DetailState {
+            id: "ish-abcd".to_string(),
+            scroll: 0,
+        }));
+
+        assert_eq!(
+            footer_line(&model).to_string(),
+            "j/k scroll  e edit  s status  p priority  ? help  q back"
         );
     }
 }

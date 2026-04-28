@@ -18,6 +18,7 @@ use crate::tui::msg::{EditorRequest, Msg, SaveFailure, SaveSuccess};
 pub struct IssuePatch {
     pub id: String,
     pub status: Option<Status>,
+    pub priority: Option<Priority>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +76,7 @@ fn save_issue(store: &mut Store, patch: IssuePatch, etag: String) -> Vec<Msg> {
         &patch.id,
         UpdateIsh {
             status: patch.status.map(status_to_store_value),
+            priority: patch.priority.map(priority_to_store_update_value),
             if_match: Some(etag),
             ..UpdateIsh::default()
         },
@@ -138,6 +140,10 @@ fn priority_to_store_value(priority: Priority) -> String {
     priority.as_str().to_string()
 }
 
+fn priority_to_store_update_value(priority: Priority) -> Option<String> {
+    Some(priority.as_str().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Effect, IssueDraft, IssuePatch, execute};
@@ -195,6 +201,7 @@ mod tests {
                 patch: IssuePatch {
                     id: "ish-abcd".to_string(),
                     status: Some(Status::InProgress),
+                    priority: None,
                 },
                 etag,
             },
@@ -218,6 +225,39 @@ mod tests {
     }
 
     #[test]
+    fn execute_save_issue_can_update_priority() {
+        let (_temp, mut store) = store_with_issue();
+        let etag = store.get("ish-abcd").expect("issue should exist").etag();
+
+        let msgs = execute(
+            Effect::SaveIssue {
+                patch: IssuePatch {
+                    id: "ish-abcd".to_string(),
+                    status: None,
+                    priority: Some(Priority::Critical),
+                },
+                etag,
+            },
+            &mut store,
+        );
+
+        match msgs.as_slice() {
+            [
+                Msg::SaveCompleted(SaveSuccess { id }),
+                Msg::IssuesLoaded(Ok(issues)),
+            ] => {
+                assert_eq!(id, "ish-abcd");
+                let issue = issues
+                    .iter()
+                    .find(|issue| issue.id == "ish-abcd")
+                    .expect("updated issue should be present");
+                assert_eq!(issue.priority.as_deref(), Some("critical"));
+            }
+            other => panic!("unexpected msgs: {other:?}"),
+        }
+    }
+
+    #[test]
     fn execute_save_issue_surfaces_conflicts() {
         let (_temp, mut store) = store_with_issue();
 
@@ -226,6 +266,7 @@ mod tests {
                 patch: IssuePatch {
                     id: "ish-abcd".to_string(),
                     status: Some(Status::Completed),
+                    priority: None,
                 },
                 etag: "stale-etag".to_string(),
             },

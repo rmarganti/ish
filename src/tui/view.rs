@@ -12,6 +12,8 @@ mod create_form;
 mod footer;
 mod help;
 mod issue_detail;
+mod picker_modal;
+mod priority_picker;
 mod status_line;
 mod status_picker;
 
@@ -41,25 +43,40 @@ pub fn draw(frame: &mut Frame<'_>, model: &Model) {
 }
 
 fn draw_main(frame: &mut Frame<'_>, area: Rect, model: &Model) {
-    match model.screens.as_slice() {
-        [
-            ..,
-            Screen::IssueDetail(detail),
-            Screen::StatusPicker(picker),
-        ] => {
-            issue_detail::draw(frame, area, model, detail);
-            status_picker::draw(frame, area, model, picker);
-        }
-        [.., screen] => draw_screen(frame, area, model, screen),
-        [] => board::draw(frame, area, model, &BoardState::default()),
+    if model.screens.is_empty() {
+        board::draw(frame, area, model, &BoardState::default());
+        return;
+    }
+
+    for (index, screen) in model.screens.iter().enumerate() {
+        draw_screen(frame, area, model, screen, index > 0);
     }
 }
 
-fn draw_screen(frame: &mut Frame<'_>, area: Rect, model: &Model, screen: &Screen) {
+fn draw_screen(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    model: &Model,
+    screen: &Screen,
+    has_underlying_screen: bool,
+) {
     match screen {
         Screen::Board(state) => board::draw(frame, area, model, state),
         Screen::IssueDetail(state) => issue_detail::draw(frame, area, model, state),
-        Screen::StatusPicker(state) => status_picker::draw(frame, area, model, state),
+        Screen::StatusPicker(state) => {
+            if has_underlying_screen {
+                status_picker::draw(frame, area, model, state)
+            } else {
+                draw_placeholder(frame, area)
+            }
+        }
+        Screen::PriorityPicker(state) => {
+            if has_underlying_screen {
+                priority_picker::draw(frame, area, model, state)
+            } else {
+                draw_placeholder(frame, area)
+            }
+        }
         Screen::CreateForm(state) => create_form::draw(frame, area, model, state),
         Screen::Help(_) => help::draw(frame, area),
     }
@@ -100,6 +117,16 @@ fn status_label(status: Status) -> &'static str {
 
 fn status_from_ish(ish_status: &str) -> Option<Status> {
     Status::from_str(ish_status)
+}
+
+fn priority_label(priority: Priority) -> &'static str {
+    match priority {
+        Priority::Critical => "Critical",
+        Priority::High => "High",
+        Priority::Normal => "Normal",
+        Priority::Low => "Low",
+        Priority::Deferred => "Deferred",
+    }
 }
 
 fn priority_from_ish(priority: Option<&str>) -> Priority {
@@ -176,9 +203,9 @@ fn card_meta_line(
 
 #[cfg(test)]
 mod tests {
-    use super::{draw, status_label, truncate_with_ellipsis};
+    use super::{draw, priority_label, status_label, truncate_with_ellipsis};
     use crate::test_support::tui::model_with_board;
-    use crate::tui::{Severity, Status, StatusLine};
+    use crate::tui::{Priority, Severity, Status, StatusLine};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -193,6 +220,12 @@ mod tests {
     fn formats_status_labels_for_column_headers() {
         assert_eq!(status_label(Status::Draft), "Draft");
         assert_eq!(status_label(Status::InProgress), "In Progress");
+    }
+
+    #[test]
+    fn formats_priority_labels_for_picker_rows() {
+        assert_eq!(priority_label(Priority::Critical), "Critical");
+        assert_eq!(priority_label(Priority::Deferred), "Deferred");
     }
 
     #[test]
