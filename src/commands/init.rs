@@ -87,7 +87,7 @@ pub(crate) fn init_command(args: InitArgs, json: bool) -> Result<Option<String>,
 
 fn save_default_config(current_dir: &Path, project_name: &str) -> Result<(), AppError> {
     let config_path = current_dir.join(CONFIG_FILE_NAME);
-    let mut config = Config::default_with_prefix(format!("{project_name}-"));
+    let mut config = Config::default_with_prefix(project_name);
     config.project.name = project_name.to_string();
     config.save(current_dir).map_err(|error| {
         AppError::new(
@@ -258,7 +258,7 @@ mod tests {
 
         let config = Config::load(project_dir.join(CONFIG_FILE_NAME)).expect("config should load");
         assert_eq!(config.ish.path, ".ish");
-        assert_eq!(config.ish.prefix, "demo-project-");
+        assert_eq!(config.ish.prefix, "demo-project");
         assert_eq!(config.project.name, "demo-project");
     }
 

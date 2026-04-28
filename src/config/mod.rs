@@ -71,10 +71,13 @@ impl Default for Config {
 
 impl Config {
     pub fn default_with_prefix(prefix: impl Into<String>) -> Self {
+        let prefix = prefix.into();
+        let prefix = prefix.trim_end_matches('-').to_string();
+
         Self {
             ish: IshConfig {
                 path: ".ish".to_string(),
-                prefix: prefix.into(),
+                prefix,
                 id_length: 4,
                 default_status: "todo".to_string(),
                 default_type: "task".to_string(),
@@ -370,6 +373,13 @@ mod tests {
 
         assert_eq!(config.ish.prefix, "bean");
         assert_eq!(config.ish.path, ".ish");
+    }
+
+    #[test]
+    fn default_with_prefix_strips_trailing_dashes() {
+        let config = Config::default_with_prefix("bean-");
+
+        assert_eq!(config.ish.prefix, "bean");
     }
 
     #[test]

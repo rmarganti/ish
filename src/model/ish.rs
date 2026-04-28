@@ -549,6 +549,8 @@ fn split_frontmatter(content: &str) -> Result<(String, String, String), ParseErr
 ///
 /// Supports `{id}--{slug}.md` and `{id}.md`.
 pub fn new_id(prefix: &str, length: usize) -> String {
+    let prefix = prefix.trim_end_matches('-');
+
     loop {
         let suffix = nanoid!(length, &ID_ALPHABET);
         let id = if prefix.is_empty() {
@@ -897,6 +899,14 @@ updated_at: 2026-01-01T00:00:00Z
                 "generated blocked id: {id}"
             );
         }
+    }
+
+    #[test]
+    fn test_new_id_strips_trailing_dashes_from_prefix() {
+        let id = new_id("ish-", 6);
+
+        assert!(id.starts_with("ish-"));
+        assert!(!id.starts_with("ish--"));
     }
 
     #[test]

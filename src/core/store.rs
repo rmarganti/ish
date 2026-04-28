@@ -372,9 +372,9 @@ impl Store {
     }
 
     pub fn normalize_id(&self, id: &str) -> String {
-        let prefix = self.config.ish.prefix.as_str();
+        let prefix = self.config.ish.prefix.trim_end_matches('-');
 
-        if prefix.is_empty() || id.starts_with(prefix) {
+        if prefix.is_empty() || id == prefix || id.starts_with(&format!("{prefix}-")) {
             id.to_string()
         } else {
             format!("{prefix}-{id}")
@@ -1431,6 +1431,28 @@ mod tests {
 
         assert_eq!(store.normalize_id("abcd"), "ish-abcd");
         assert_eq!(store.normalize_id("ish-abcd"), "ish-abcd");
+    }
+
+    #[test]
+    fn normalize_id_strips_trailing_dashes_from_prefix() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let mut config = Config::default_with_prefix("ish");
+        config.ish.prefix = "ish-".to_string();
+        let store = Store::new(&root, config).expect("store should initialize");
+
+        assert_eq!(store.normalize_id("abcd"), "ish-abcd");
+        assert_eq!(store.normalize_id("ish-abcd"), "ish-abcd");
+    }
+
+    #[test]
+    fn normalize_id_requires_a_prefix_boundary() {
+        let temp = TestDir::new();
+        let root = temp.path().join(".ish");
+        let store =
+            Store::new(&root, Config::default_with_prefix("ish")).expect("store should initialize");
+
+        assert_eq!(store.normalize_id("ishx-abcd"), "ish-ishx-abcd");
     }
 
     #[test]
