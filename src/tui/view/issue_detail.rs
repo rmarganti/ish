@@ -24,14 +24,14 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, model: &Model, state: &DetailStat
 
     frame.render_widget(
         Paragraph::new(metadata_lines)
-            .block(Block::default().borders(Borders::ALL).title(" Details "))
+            .block(detail_block("Details"))
             .wrap(Wrap { trim: false }),
         sections[0],
     );
 
     frame.render_widget(
         Paragraph::new(body_lines(issue))
-            .block(Block::default().borders(Borders::ALL).title(" Body "))
+            .block(detail_block("Body"))
             .scroll((state.scroll, 0))
             .wrap(Wrap { trim: false }),
         sections[1],
@@ -43,10 +43,25 @@ fn draw_missing_issue(frame: &mut Frame<'_>, area: Rect, id: &str) {
         Paragraph::new(format!(
             "Issue {id} is no longer available. Press q to go back."
         ))
-        .block(Block::default().borders(Borders::ALL).title(" Details "))
+        .block(detail_block("Details"))
         .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+fn detail_block(title: &str) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(detail_border_style())
+        .title(detail_title(title))
+}
+
+fn detail_border_style() -> Style {
+    theme::card_border(false, false)
+}
+
+fn detail_title(title: &str) -> Line<'static> {
+    Line::styled(format!(" {title} "), theme::column_header(false))
 }
 
 fn metadata_lines(model: &Model, issue: &Ish) -> Vec<Line<'static>> {
@@ -168,11 +183,12 @@ fn join_or_dash(values: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{body_lines, join_or_dash, metadata_lines};
+    use super::{body_lines, detail_border_style, detail_title, join_or_dash, metadata_lines};
     use crate::test_support::tui::{IshBuilder, model_with_board};
     use crate::tui::{DetailState, Screen, view};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::{Color, Modifier};
 
     #[test]
     fn metadata_lines_include_relationships_and_tags() {
@@ -217,6 +233,16 @@ mod tests {
         assert_eq!(body[2], "paragraph");
         assert_eq!(body[3], "```rust");
         assert_eq!(join_or_dash(&[]), "—");
+    }
+
+    #[test]
+    fn detail_block_matches_unfocused_board_column_styling() {
+        let border = detail_border_style();
+        assert_eq!(border.fg, Some(Color::DarkGray));
+        assert!(border.add_modifier.contains(Modifier::DIM));
+
+        let title = detail_title("Details");
+        assert_eq!(title.to_string(), " Details ");
     }
 
     #[test]
