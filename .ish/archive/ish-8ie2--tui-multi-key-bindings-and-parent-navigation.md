@@ -1,13 +1,13 @@
 ---
 # ish-8ie2
 title: 'TUI: multi-key bindings and parent navigation'
-status: todo
+status: completed
 type: feature
 priority: high
 tags:
 - tui
 created_at: 2026-04-28T17:44:25.495743Z
-updated_at: 2026-04-28T17:44:25.495743Z
+updated_at: 2026-04-28T18:11:22.750730Z
 ---
 
 ## Context
@@ -34,3 +34,16 @@ The target UX for this feature is:
 - `gg` works anywhere `g` previously meant jump-to-top.
 - `gp` navigates to the current issue's parent from both board and detail views.
 - `mise run ci` passes.
+
+
+## Implementation notes
+- Completed the multi-key input pipeline by landing the final `gp` integration on top of the earlier `Msg::KeyPressed(...)` resolver and semantic `Msg::GoToParent` update action.
+- Board and detail navigation now share the agreed final UX: `gg` jumps to top, `G` jumps to bottom, and `gp` navigates to the current issue's parent.
+- Help/footer chrome and regression coverage now match the live bindings, reducing the chance of future drift between documentation and behavior.
+
+## Validation
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- Future multi-key additions should continue using the resolver + semantic-message split established here so new sequences remain testable without baking behavior into runtime event handling.

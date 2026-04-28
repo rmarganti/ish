@@ -1,7 +1,7 @@
 use crate::app::{AppContext, AppError};
 use crate::core::store::Store;
 use crate::output::ErrorCode;
-use crate::tui::{Effect, Model, Msg, editor, effect, keymap, update, view};
+use crate::tui::{Effect, Model, Msg, editor, effect, update, view};
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
@@ -112,10 +112,8 @@ fn read_event(model: &Model) -> Result<Option<Msg>, AppError> {
 
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat => {
-            Ok(model
-                .screens
-                .last()
-                .and_then(|screen| keymap::map_key(screen, key)))
+            let _ = model;
+            Ok(Some(Msg::KeyPressed(key)))
         }
         Event::Resize(width, height) => Ok(Some(Msg::Resize(width, height))),
         _ => Ok(None),

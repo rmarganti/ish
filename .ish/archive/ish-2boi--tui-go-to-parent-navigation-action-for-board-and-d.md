@@ -1,13 +1,13 @@
 ---
 # ish-2boi
 title: 'TUI: go-to-parent navigation action for board and detail'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-28T17:44:25.825014Z
-updated_at: 2026-04-28T17:44:26.111217Z
+updated_at: 2026-04-28T18:08:13.396958Z
 parent: ish-8ie2
 blocking:
 - ish-1zsa
@@ -45,3 +45,20 @@ This task should introduce the behavior as a first-class message/action so it is
   - board view without parent -> leaves selection stable and reports the problem clearly
 - `mise exec -- cargo test tui::update -- --nocapture`
 - `mise run ci`
+
+
+
+## Implementation notes
+- Added a dedicated `Msg::GoToParent` semantic navigation action in `src/tui/msg.rs` so parent navigation is testable independently of any final key binding.
+- `src/tui/update.rs` now handles parent navigation in both board and detail contexts: detail replaces the current issue detail with the parent and resets scroll, while board selection jumps across columns to the parent row and keeps it visible.
+- Extracted `select_issue_on_board(...)` so board-side parent selection stays localized instead of duplicating bucket/cursor logic inline.
+- Missing-parent cases now surface friendly info status lines instead of panicking, including the distinction between a parent that is missing from the cache and one that exists but is not visible on the board.
+- Added focused update regression tests covering detail success/failure and board success/failure flows.
+
+## Validation
+- `mise exec -- cargo test tui::update -- --nocapture`
+- `mise exec -- ish check`
+- `mise run ci`
+
+## Follow-up notes
+- The semantic `GoToParent` action is now in place for the final `gp` binding task (`ish-1zsa`); that follow-up should only need keymap/help/footer wiring on top of this update-layer behavior.

@@ -2,6 +2,7 @@
 
 use crate::config::Config;
 use crate::model::ish::Ish;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -158,6 +159,32 @@ pub struct StatusLine {
     pub severity: Severity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KeyPattern {
+    pub code: KeyCode,
+    pub modifiers: KeyModifiers,
+}
+
+impl KeyPattern {
+    pub fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
+        Self { code, modifiers }
+    }
+}
+
+impl From<KeyEvent> for KeyPattern {
+    fn from(value: KeyEvent) -> Self {
+        Self {
+            code: value.code,
+            modifiers: value.modifiers,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InputState {
+    pub pending_keys: Vec<KeyPattern>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BoardState {
     pub selected_column: usize,
@@ -227,6 +254,7 @@ pub struct Model {
     pub etags: HashMap<String, String>,
     pub config: ConfigHandle,
     pub screens: Vec<Screen>,
+    pub input: InputState,
     pub status_line: Option<StatusLine>,
     pub status_line_set_at: Option<Instant>,
     pub quit: bool,
@@ -240,6 +268,7 @@ impl Model {
             etags: HashMap::new(),
             config,
             screens: vec![Screen::Board(BoardState::default())],
+            input: InputState::default(),
             status_line: None,
             status_line_set_at: None,
             quit: false,

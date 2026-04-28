@@ -15,8 +15,9 @@ mod effect_integration;
 pub use effect::{Effect, IssueDraft, IssuePatch};
 #[allow(unused_imports)]
 pub use model::{
-    BOARD_COLUMNS, BoardState, ConfigHandle, CreateFormState, DetailState, HelpState, IshType,
-    Model, PickerState, Priority, PriorityPickerState, Screen, Severity, Status, StatusLine,
+    BOARD_COLUMNS, BoardState, ConfigHandle, CreateFormState, DetailState, HelpState, InputState,
+    IshType, KeyPattern, Model, PickerState, Priority, PriorityPickerState, Screen, Severity,
+    Status, StatusLine,
 };
 #[allow(unused_imports)]
 pub use msg::{EditorRequest, FormFieldEdit, Msg, MsgResult, SaveFailure, SaveSuccess};

@@ -3,6 +3,7 @@
 use crate::model::ish::Ish;
 use crate::tui::effect::Effect;
 use crate::tui::model::Status;
+use crossterm::event::KeyEvent;
 
 pub type MsgResult<T> = Result<T, String>;
 
@@ -31,6 +32,7 @@ pub struct EditorRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
+    KeyPressed(KeyEvent),
     MoveLeft,
     MoveRight,
     MoveUp,
@@ -42,6 +44,7 @@ pub enum Msg {
     OpenDetail,
     OpenStatusPicker,
     OpenPriorityPicker,
+    GoToParent,
     OpenCreateForm,
     OpenHelp,
     PopScreen,

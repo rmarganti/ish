@@ -4,7 +4,7 @@ use crate::model::ish::{Ish, normalize_tag};
 use crate::tui::{
     BOARD_COLUMNS, BoardState, CreateFormState, DetailState, Effect, HelpState, IssueDraft,
     IssuePatch, Model, Msg, PickerState, Priority, PriorityPickerState, SaveFailure, Screen,
-    Severity, Status, StatusLine,
+    Severity, Status, StatusLine, keymap,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -17,6 +17,28 @@ const ERROR_STICKY_TTL: Duration = Duration::from_secs(1);
 const CREATE_FORM_FIELD_COUNT: usize = 5;
 
 pub fn update(mut model: Model, msg: Msg) -> (Model, Vec<Effect>) {
+    if let Msg::KeyPressed(key) = msg {
+        let Some(screen) = model.screens.last().cloned() else {
+            model.screens.push(Screen::Board(BoardState::default()));
+            return (model, Vec::new());
+        };
+
+        return match keymap::resolve_key(&screen, &model.input, key) {
+            keymap::KeyResolution::Dispatch(mapped) => {
+                model.input = Default::default();
+                update(model, mapped)
+            }
+            keymap::KeyResolution::Pending(input) => {
+                model.input = input;
+                (model, Vec::new())
+            }
+            keymap::KeyResolution::Ignore => {
+                model.input = Default::default();
+                (model, Vec::new())
+            }
+        };
+    }
+
     if let Some(effects) = handle_global(&mut model, &msg) {
         return (model, effects);
     }
@@ -126,6 +148,43 @@ fn update_board(mut model: Model, mut state: BoardState, msg: Msg) -> (Model, Ve
                 return (model, effects);
             }
         }
+        Msg::GoToParent => {
+            let Some(issue) = selected_board_issue(&model, &state) else {
+                set_status_line(
+                    &mut model,
+                    "No issue selected to navigate to a parent".to_string(),
+                    Severity::Info,
+                );
+                replace_top_screen(&mut model, Screen::Board(state));
+                return (model, effects);
+            };
+            let issue_id = issue.id.clone();
+            let parent_id = issue.parent.clone();
+
+            let Some(parent_id) = parent_id else {
+                set_status_line(
+                    &mut model,
+                    format!("{issue_id} has no parent"),
+                    Severity::Info,
+                );
+                replace_top_screen(&mut model, Screen::Board(state));
+                return (model, effects);
+            };
+
+            if select_issue_on_board(&model, &mut state, &parent_id) {
+                replace_top_screen(&mut model, Screen::Board(state));
+                return (model, effects);
+            }
+
+            let message = if find_issue(&model, &parent_id).is_some() {
+                format!("Parent {parent_id} is not visible on the board")
+            } else {
+                format!("Parent {parent_id} was not found")
+            };
+            set_status_line(&mut model, message, Severity::Info);
+            replace_top_screen(&mut model, Screen::Board(state));
+            return (model, effects);
+        }
         Msg::OpenCreateForm => {
             model
                 .screens
@@ -196,6 +255,42 @@ fn update_detail(mut model: Model, mut state: DetailState, msg: Msg) -> (Model, 
                     }));
                 return (model, effects);
             }
+        }
+        Msg::GoToParent => {
+            let Some(issue) = find_issue(&model, &state.id) else {
+                set_status_line(
+                    &mut model,
+                    format!("{} was not found", state.id),
+                    Severity::Info,
+                );
+                replace_top_screen(&mut model, Screen::IssueDetail(state));
+                return (model, effects);
+            };
+            let issue_id = issue.id.clone();
+            let parent_id = issue.parent.clone();
+
+            let Some(parent_id) = parent_id else {
+                set_status_line(
+                    &mut model,
+                    format!("{issue_id} has no parent"),
+                    Severity::Info,
+                );
+                replace_top_screen(&mut model, Screen::IssueDetail(state));
+                return (model, effects);
+            };
+
+            let Some(parent) = find_issue(&model, &parent_id) else {
+                set_status_line(
+                    &mut model,
+                    format!("Parent {parent_id} was not found"),
+                    Severity::Info,
+                );
+                replace_top_screen(&mut model, Screen::IssueDetail(state));
+                return (model, effects);
+            };
+
+            state.id = parent.id.clone();
+            state.scroll = 0;
         }
         Msg::PopScreen => {
             pop_screen(&mut model);
@@ -504,6 +599,25 @@ fn find_issue<'a>(model: &'a Model, id: &str) -> Option<&'a Ish> {
     model.issues.iter().find(|issue| issue.id == id)
 }
 
+fn select_issue_on_board(model: &Model, state: &mut BoardState, issue_id: &str) -> bool {
+    for (column, status) in BOARD_COLUMNS.iter().copied().enumerate() {
+        let Some(index) = model
+            .bucket_for_status(status)
+            .iter()
+            .position(|row| row.ish.id == issue_id)
+        else {
+            continue;
+        };
+
+        state.selected_column = column;
+        state.column_cursors[column] = Some(index);
+        keep_cursor_visible(state, column, model.bucket_for_status(status).len());
+        return true;
+    }
+
+    false
+}
+
 fn priority_from_issue(issue: &Ish) -> Option<Priority> {
     issue.priority.as_deref().and_then(Priority::from_str)
 }
@@ -660,6 +774,7 @@ mod tests {
         PickerState, Priority, PriorityPickerState, SaveFailure, SaveSuccess, Screen, Severity,
         Status, StatusLine,
     };
+    use crossterm::event::KeyCode;
     use std::time::{Duration, Instant};
 
     fn board_state(model: &Model) -> &BoardState {
@@ -674,6 +789,15 @@ mod tests {
             .screens
             .last()
             .expect("screen stack should not be empty")
+    }
+
+    fn selected_board_issue_id(model: &Model) -> Option<&str> {
+        let state = board_state(model);
+        let cursor = state.column_cursors[state.selected_column]?;
+        model
+            .bucket_for_status(crate::tui::BOARD_COLUMNS[state.selected_column])
+            .get(cursor)
+            .map(|row| row.ish.id.as_str())
     }
 
     fn todo_model(todo_count: usize) -> Model {
@@ -808,6 +932,60 @@ mod tests {
     }
 
     #[test]
+    fn key_pressed_path_tracks_pending_prefixes_and_dispatches_gg() {
+        let model = todo_model(6);
+        let (model, effects) = dispatch(
+            model,
+            &[
+                Msg::MoveRight,
+                Msg::MoveDown,
+                Msg::MoveDown,
+                Msg::KeyPressed(crate::k!(KeyCode::Char('g'))),
+            ],
+        );
+
+        assert!(effects.is_empty());
+        assert_eq!(model.input.pending_keys.len(), 1);
+        assert_eq!(board_state(&model).column_cursors[1], Some(2));
+
+        let (model, effects) = update(model, Msg::KeyPressed(crate::k!(KeyCode::Char('g'))));
+
+        assert!(effects.is_empty());
+        assert!(model.input.pending_keys.is_empty());
+        assert_eq!(board_state(&model).column_cursors[1], Some(0));
+    }
+
+    #[test]
+    fn invalid_key_sequence_clears_pending_and_retries_current_key() {
+        let model = todo_model(2);
+        let (model, effects) = dispatch(
+            model,
+            &[
+                Msg::MoveRight,
+                Msg::MoveDown,
+                Msg::KeyPressed(crate::k!(KeyCode::Char('g'))),
+                Msg::KeyPressed(crate::k!(KeyCode::Char('j'))),
+            ],
+        );
+
+        assert!(effects.is_empty());
+        assert!(model.input.pending_keys.is_empty());
+        assert_eq!(board_state(&model).column_cursors[1], Some(1));
+
+        let (model, effects) = dispatch(
+            model,
+            &[
+                Msg::KeyPressed(crate::k!(KeyCode::Char('g'))),
+                Msg::KeyPressed(crate::k!(KeyCode::Char('x'))),
+            ],
+        );
+
+        assert!(effects.is_empty());
+        assert!(model.input.pending_keys.is_empty());
+        assert_eq!(board_state(&model).column_cursors[1], Some(1));
+    }
+
+    #[test]
     fn screen_transitions_open_detail_picker_create_form_and_pop_cleanly() {
         let model = model_with_board(vec![IshBuilder::new("todo").status("todo").build()]);
         let (model, effects) = dispatch(
@@ -907,6 +1085,122 @@ mod tests {
                 },
                 etag: expected_etag,
             }]
+        );
+    }
+
+    #[test]
+    fn go_to_parent_from_detail_replaces_the_current_detail_screen() {
+        let mut model = model_with_board(vec![
+            IshBuilder::new("parent").status("todo").build(),
+            IshBuilder::new("child")
+                .status("todo")
+                .parent("ish-parent")
+                .build(),
+        ]);
+        model.screens = vec![
+            Screen::Board(BoardState::default()),
+            Screen::IssueDetail(DetailState {
+                id: "ish-child".to_string(),
+                scroll: 7,
+            }),
+        ];
+
+        let (model, effects) = update(model, Msg::GoToParent);
+
+        assert!(effects.is_empty());
+        assert_eq!(model.screens.len(), 2);
+        assert_eq!(
+            top_screen(&model),
+            &Screen::IssueDetail(DetailState {
+                id: "ish-parent".to_string(),
+                scroll: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn go_to_parent_from_detail_without_a_parent_sets_a_status_message() {
+        let mut model = model_with_board(vec![IshBuilder::new("solo").status("todo").build()]);
+        model.screens = vec![
+            Screen::Board(BoardState::default()),
+            Screen::IssueDetail(DetailState {
+                id: "ish-solo".to_string(),
+                scroll: 3,
+            }),
+        ];
+
+        let (model, effects) = update(model, Msg::GoToParent);
+
+        assert!(effects.is_empty());
+        assert_eq!(
+            top_screen(&model),
+            &Screen::IssueDetail(DetailState {
+                id: "ish-solo".to_string(),
+                scroll: 3,
+            })
+        );
+        assert_eq!(
+            model.status_line,
+            Some(StatusLine {
+                text: "ish-solo has no parent".to_string(),
+                severity: Severity::Info,
+            })
+        );
+    }
+
+    #[test]
+    fn go_to_parent_from_board_selects_the_parent_column_and_row() {
+        let mut model = model_with_board(vec![
+            IshBuilder::new("parent")
+                .status("in-progress")
+                .updated_at(2026, 1, 2)
+                .build(),
+            IshBuilder::new("sibling")
+                .status("in-progress")
+                .updated_at(2026, 1, 1)
+                .build(),
+            IshBuilder::new("child")
+                .status("todo")
+                .parent("ish-parent")
+                .build(),
+        ]);
+        model.screens = vec![Screen::Board(BoardState {
+            selected_column: 1,
+            column_cursors: [None, Some(0), Some(1), None],
+            column_offsets: [0; 4],
+        })];
+
+        let (model, effects) = update(model, Msg::GoToParent);
+
+        assert!(effects.is_empty());
+        let board = board_state(&model);
+        assert_eq!(board.selected_column, 2);
+        assert_eq!(board.column_cursors[2], Some(0));
+        assert_eq!(selected_board_issue_id(&model), Some("ish-parent"));
+    }
+
+    #[test]
+    fn go_to_parent_from_board_without_a_parent_keeps_selection_stable_and_sets_status() {
+        let mut model = model_with_board(vec![IshBuilder::new("solo").status("todo").build()]);
+        model.screens = vec![Screen::Board(BoardState {
+            selected_column: 1,
+            column_cursors: [None, Some(0), None, None],
+            column_offsets: [0; 4],
+        })];
+
+        let (model, effects) = update(model, Msg::GoToParent);
+
+        assert!(effects.is_empty());
+        let board = board_state(&model);
+        assert_eq!(board.selected_column, 1);
+        assert_eq!(board.column_cursors[1], Some(0));
+        assert_eq!(selected_board_issue_id(&model), Some("ish-solo"));
+        assert_eq!(
+            model.status_line,
+            Some(StatusLine {
+                text: "ish-solo has no parent".to_string(),
+                severity: Severity::Info,
+            })
         );
     }
 
