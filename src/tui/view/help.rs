@@ -29,7 +29,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::default(),
         section_title("Board"),
         binding_line("h/j/k/l, arrows", "move between columns and cards"),
-        binding_line("g / G", "jump to top / bottom"),
+        binding_line("gg / G", "jump to top / bottom"),
+        binding_line("gp", "go to parent issue"),
         binding_line("Ctrl-u / Ctrl-d", "half-page scroll"),
         binding_line("Enter / Space", "open selected issue"),
         binding_line("c", "create issue"),
@@ -38,7 +39,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::default(),
         section_title("Issue detail"),
         binding_line("j / k, arrows", "scroll body"),
-        binding_line("g / G", "jump to top / bottom"),
+        binding_line("gg / G", "jump to top / bottom"),
+        binding_line("gp", "go to parent issue"),
         binding_line("Ctrl-u / Ctrl-d", "half-page scroll"),
         binding_line("e", "edit in $EDITOR"),
         binding_line("s", "open status picker"),
@@ -104,6 +106,9 @@ mod tests {
         assert!(rendered.contains("Issue detail"));
         assert!(rendered.contains("Status picker"));
         assert!(rendered.contains("Priority picker"));
+        assert!(rendered.contains("gg / G"));
+        assert!(rendered.contains("gp"));
+        assert!(rendered.contains("go to parent issue"));
         assert!(rendered.contains("open priority picker"));
         assert!(rendered.contains("save selected priority"));
         assert!(rendered.contains("Create form"));

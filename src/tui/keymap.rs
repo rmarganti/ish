@@ -1,371 +1,273 @@
 #![allow(dead_code)]
 
-use crate::tui::{FormFieldEdit, Msg, Screen};
+use crate::tui::{CreateFormState, FormFieldEdit, InputState, KeyPattern, Msg, Screen};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-pub fn map_key(screen: &Screen, key: KeyEvent) -> Option<Msg> {
-    if is_ctrl_char(&key, 'c') {
-        return Some(Msg::Quit);
-    }
-
-    if !matches!(screen, Screen::Help(_))
-        && key == KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)
-    {
-        return Some(Msg::OpenHelp);
-    }
-
-    match screen {
-        Screen::Board(_) => map_board_key(key),
-        Screen::IssueDetail(_) => map_detail_key(key),
-        Screen::StatusPicker(_) => map_status_picker_key(key),
-        Screen::PriorityPicker(_) => map_priority_picker_key(key),
-        Screen::CreateForm(state) => map_create_form_key(state, key),
-        Screen::Help(_) => Some(Msg::PopScreen),
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum KeyResolution {
+    Dispatch(Msg),
+    Pending(InputState),
+    Ignore,
 }
 
-fn map_board_key(key: KeyEvent) -> Option<Msg> {
-    match key {
-        KeyEvent {
-            code: KeyCode::Char('h'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Left,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveLeft),
-        KeyEvent {
-            code: KeyCode::Char('j'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Down,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveDown),
-        KeyEvent {
-            code: KeyCode::Char('k'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Up,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveUp),
-        KeyEvent {
-            code: KeyCode::Char('l'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Right,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveRight),
-        KeyEvent {
-            code: KeyCode::Char('g'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Home,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::JumpTop),
-        KeyEvent {
-            code: KeyCode::Char('G'),
-            modifiers: KeyModifiers::SHIFT,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::End,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::JumpBottom),
-        key if is_ctrl_char(&key, 'd') => Some(Msg::HalfPageDown),
-        key if is_ctrl_char(&key, 'u') => Some(Msg::HalfPageUp),
-        KeyEvent {
-            code: KeyCode::Enter,
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Char(' '),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::OpenDetail),
-        KeyEvent {
-            code: KeyCode::Char('c'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::OpenCreateForm),
-        KeyEvent {
-            code: KeyCode::Char('r'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::RequestRefresh),
-        KeyEvent {
-            code: KeyCode::Char('q'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::Quit),
-        _ => None,
-    }
+#[derive(Debug, Clone, PartialEq)]
+struct Binding {
+    sequence: Vec<KeyPattern>,
+    msg: Msg,
 }
 
-fn map_detail_key(key: KeyEvent) -> Option<Msg> {
-    match key {
-        KeyEvent {
-            code: KeyCode::Char('j'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Down,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveDown),
-        KeyEvent {
-            code: KeyCode::Char('k'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Up,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveUp),
-        KeyEvent {
-            code: KeyCode::Char('g'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Home,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::JumpTop),
-        KeyEvent {
-            code: KeyCode::Char('G'),
-            modifiers: KeyModifiers::SHIFT,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::End,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::JumpBottom),
-        key if is_ctrl_char(&key, 'd') => Some(Msg::HalfPageDown),
-        key if is_ctrl_char(&key, 'u') => Some(Msg::HalfPageUp),
-        KeyEvent {
-            code: KeyCode::Char('e'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::EditCurrentIssue),
-        KeyEvent {
-            code: KeyCode::Char('s'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::OpenStatusPicker),
-        KeyEvent {
-            code: KeyCode::Char('p'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::OpenPriorityPicker),
-        KeyEvent {
-            code: KeyCode::Char('q'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Esc,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::PopScreen),
-        _ => None,
-    }
-}
-
-fn map_status_picker_key(key: KeyEvent) -> Option<Msg> {
-    map_picker_key(key, Msg::SubmitStatusChange)
-}
-
-fn map_priority_picker_key(key: KeyEvent) -> Option<Msg> {
-    map_picker_key(key, Msg::SubmitPriorityChange)
-}
-
-fn map_picker_key(key: KeyEvent, submit_msg: Msg) -> Option<Msg> {
-    match key {
-        KeyEvent {
-            code: KeyCode::Char('j'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Down,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveDown),
-        key if is_ctrl_char(&key, 'n') => Some(Msg::MoveDown),
-        KeyEvent {
-            code: KeyCode::Char('k'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Up,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::MoveUp),
-        key if is_ctrl_char(&key, 'p') => Some(Msg::MoveUp),
-        KeyEvent {
-            code: KeyCode::Enter,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(submit_msg),
-        KeyEvent {
-            code: KeyCode::Char('q'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Esc,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::PopScreen),
-        _ => None,
-    }
-}
-
-fn map_create_form_key(state: &crate::tui::CreateFormState, key: KeyEvent) -> Option<Msg> {
-    if state.pending_cancel {
-        return match key {
-            KeyEvent {
-                code: KeyCode::Char('y'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            }
-            | KeyEvent {
-                code: KeyCode::Char('Y'),
-                modifiers: KeyModifiers::SHIFT,
-                ..
-            } => Some(Msg::ConfirmDiscardCreateForm),
-            KeyEvent {
-                code: KeyCode::Char('n'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            }
-            | KeyEvent {
-                code: KeyCode::Char('N'),
-                modifiers: KeyModifiers::SHIFT,
-                ..
-            }
-            | KeyEvent {
-                code: KeyCode::Esc,
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(Msg::CancelDiscardCreateForm),
-            _ => None,
+pub fn resolve_key(screen: &Screen, input: &InputState, key: KeyEvent) -> KeyResolution {
+    if matches!(screen, Screen::Help(_)) {
+        return if is_ctrl_char(&key, 'c') {
+            KeyResolution::Dispatch(Msg::Quit)
+        } else {
+            KeyResolution::Dispatch(Msg::PopScreen)
         };
     }
 
-    let focused_field = state.focused_field;
-    match key {
-        KeyEvent {
-            code: KeyCode::Tab,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::FocusNextField),
-        key if is_ctrl_char(&key, 'n') => Some(Msg::FocusNextField),
-        KeyEvent {
-            code: KeyCode::BackTab,
-            modifiers: KeyModifiers::SHIFT,
-            ..
-        } => Some(Msg::FocusPreviousField),
-        key if is_ctrl_char(&key, 'p') => Some(Msg::FocusPreviousField),
-        key if is_ctrl_char(&key, 's') => Some(Msg::SubmitCreateForm),
-        key if is_ctrl_char(&key, 'e') => Some(Msg::SubmitCreateAndEdit),
-        KeyEvent {
-            code: KeyCode::Esc,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::PopScreen),
-        KeyEvent {
-            code: KeyCode::Enter,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 4 => Some(Msg::SubmitCreateForm),
-        KeyEvent {
-            code: KeyCode::Left,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 1 => Some(Msg::CreateFormCycleType(-1)),
-        KeyEvent {
-            code: KeyCode::Right,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 1 => Some(Msg::CreateFormCycleType(1)),
-        KeyEvent {
-            code: KeyCode::Left,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 2 => Some(Msg::CreateFormCyclePriority(-1)),
-        KeyEvent {
-            code: KeyCode::Right,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 2 => Some(Msg::CreateFormCyclePriority(1)),
-        KeyEvent {
-            code: KeyCode::Char('h'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 1 => Some(Msg::CreateFormCycleType(-1)),
-        KeyEvent {
-            code: KeyCode::Char('l'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 1 => Some(Msg::CreateFormCycleType(1)),
-        KeyEvent {
-            code: KeyCode::Char('h'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 2 => Some(Msg::CreateFormCyclePriority(-1)),
-        KeyEvent {
-            code: KeyCode::Char('l'),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if focused_field == 2 => Some(Msg::CreateFormCyclePriority(1)),
-        KeyEvent {
-            code: KeyCode::Backspace,
-            modifiers: KeyModifiers::NONE,
-            ..
-        } => Some(Msg::CreateFormInput(FormFieldEdit::Backspace)),
-        KeyEvent {
-            code: KeyCode::Delete,
-            modifiers: KeyModifiers::NONE,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Char('u'),
-            modifiers: KeyModifiers::CONTROL,
-            ..
-        } => Some(Msg::CreateFormInput(FormFieldEdit::Clear)),
-        KeyEvent {
-            code: KeyCode::Char(ch),
-            modifiers: KeyModifiers::NONE,
-            ..
-        } if is_printable(ch) => Some(Msg::CreateFormInput(FormFieldEdit::Insert(ch))),
-        KeyEvent {
-            code: KeyCode::Char(ch),
-            modifiers: KeyModifiers::SHIFT,
-            ..
-        } if is_printable(ch) => Some(Msg::CreateFormInput(FormFieldEdit::Insert(ch))),
-        _ => None,
+    let key = KeyPattern::from(key);
+    let bindings = bindings_for(screen);
+    resolve_bindings(&bindings, input, key)
+}
+
+fn resolve_bindings(bindings: &[Binding], input: &InputState, key: KeyPattern) -> KeyResolution {
+    let mut candidate = input.pending_keys.clone();
+    candidate.push(key);
+
+    let exact = bindings
+        .iter()
+        .find(|binding| binding.sequence == candidate);
+    let has_longer_prefix = bindings.iter().any(|binding| {
+        binding.sequence.starts_with(&candidate) && binding.sequence.len() > candidate.len()
+    });
+
+    if let Some(exact) = exact
+        && !has_longer_prefix
+    {
+        return KeyResolution::Dispatch(exact.msg.clone());
     }
+
+    if has_longer_prefix {
+        return KeyResolution::Pending(InputState {
+            pending_keys: candidate,
+        });
+    }
+
+    if !input.pending_keys.is_empty() {
+        return resolve_bindings(bindings, &InputState::default(), key);
+    }
+
+    KeyResolution::Ignore
+}
+
+fn bindings_for(screen: &Screen) -> Vec<Binding> {
+    let mut bindings = global_bindings();
+    bindings.extend(match screen {
+        Screen::Board(_) => board_bindings(),
+        Screen::IssueDetail(_) => detail_bindings(),
+        Screen::StatusPicker(_) => picker_bindings(Msg::SubmitStatusChange),
+        Screen::PriorityPicker(_) => picker_bindings(Msg::SubmitPriorityChange),
+        Screen::CreateForm(state) => create_form_bindings(state),
+        Screen::Help(_) => Vec::new(),
+    });
+    bindings
+}
+
+fn global_bindings() -> Vec<Binding> {
+    vec![
+        binding(seq(&[ctrl('c')]), Msg::Quit),
+        binding(seq(&[plain('?')]), Msg::OpenHelp),
+    ]
+}
+
+fn board_bindings() -> Vec<Binding> {
+    vec![
+        binding(seq(&[plain('h')]), Msg::MoveLeft),
+        binding(seq(&[special(KeyCode::Left)]), Msg::MoveLeft),
+        binding(seq(&[plain('j')]), Msg::MoveDown),
+        binding(seq(&[special(KeyCode::Down)]), Msg::MoveDown),
+        binding(seq(&[plain('k')]), Msg::MoveUp),
+        binding(seq(&[special(KeyCode::Up)]), Msg::MoveUp),
+        binding(seq(&[plain('l')]), Msg::MoveRight),
+        binding(seq(&[special(KeyCode::Right)]), Msg::MoveRight),
+        binding(seq(&[plain('g'), plain('g')]), Msg::JumpTop),
+        binding(seq(&[plain('g'), plain('p')]), Msg::GoToParent),
+        binding(seq(&[special(KeyCode::Home)]), Msg::JumpTop),
+        binding(seq(&[shift('G')]), Msg::JumpBottom),
+        binding(seq(&[special(KeyCode::End)]), Msg::JumpBottom),
+        binding(seq(&[ctrl('d')]), Msg::HalfPageDown),
+        binding(seq(&[ctrl('u')]), Msg::HalfPageUp),
+        binding(seq(&[special(KeyCode::Enter)]), Msg::OpenDetail),
+        binding(seq(&[plain(' ')]), Msg::OpenDetail),
+        binding(seq(&[plain('c')]), Msg::OpenCreateForm),
+        binding(seq(&[plain('r')]), Msg::RequestRefresh),
+        binding(seq(&[plain('q')]), Msg::Quit),
+    ]
+}
+
+fn detail_bindings() -> Vec<Binding> {
+    vec![
+        binding(seq(&[plain('j')]), Msg::MoveDown),
+        binding(seq(&[special(KeyCode::Down)]), Msg::MoveDown),
+        binding(seq(&[plain('k')]), Msg::MoveUp),
+        binding(seq(&[special(KeyCode::Up)]), Msg::MoveUp),
+        binding(seq(&[plain('g'), plain('g')]), Msg::JumpTop),
+        binding(seq(&[plain('g'), plain('p')]), Msg::GoToParent),
+        binding(seq(&[special(KeyCode::Home)]), Msg::JumpTop),
+        binding(seq(&[shift('G')]), Msg::JumpBottom),
+        binding(seq(&[special(KeyCode::End)]), Msg::JumpBottom),
+        binding(seq(&[ctrl('d')]), Msg::HalfPageDown),
+        binding(seq(&[ctrl('u')]), Msg::HalfPageUp),
+        binding(seq(&[plain('e')]), Msg::EditCurrentIssue),
+        binding(seq(&[plain('s')]), Msg::OpenStatusPicker),
+        binding(seq(&[plain('p')]), Msg::OpenPriorityPicker),
+        binding(seq(&[plain('q')]), Msg::PopScreen),
+        binding(seq(&[special(KeyCode::Esc)]), Msg::PopScreen),
+    ]
+}
+
+fn picker_bindings(submit_msg: Msg) -> Vec<Binding> {
+    vec![
+        binding(seq(&[plain('j')]), Msg::MoveDown),
+        binding(seq(&[special(KeyCode::Down)]), Msg::MoveDown),
+        binding(seq(&[ctrl('n')]), Msg::MoveDown),
+        binding(seq(&[plain('k')]), Msg::MoveUp),
+        binding(seq(&[special(KeyCode::Up)]), Msg::MoveUp),
+        binding(seq(&[ctrl('p')]), Msg::MoveUp),
+        binding(seq(&[special(KeyCode::Enter)]), submit_msg),
+        binding(seq(&[plain('q')]), Msg::PopScreen),
+        binding(seq(&[special(KeyCode::Esc)]), Msg::PopScreen),
+    ]
+}
+
+fn create_form_bindings(state: &CreateFormState) -> Vec<Binding> {
+    if state.pending_cancel {
+        return vec![
+            binding(seq(&[plain('y')]), Msg::ConfirmDiscardCreateForm),
+            binding(seq(&[shift('Y')]), Msg::ConfirmDiscardCreateForm),
+            binding(seq(&[plain('n')]), Msg::CancelDiscardCreateForm),
+            binding(seq(&[shift('N')]), Msg::CancelDiscardCreateForm),
+            binding(seq(&[special(KeyCode::Esc)]), Msg::CancelDiscardCreateForm),
+        ];
+    }
+
+    let mut bindings = vec![
+        binding(seq(&[special(KeyCode::Tab)]), Msg::FocusNextField),
+        binding(seq(&[ctrl('n')]), Msg::FocusNextField),
+        binding(
+            seq(&[special_mod(KeyCode::BackTab, KeyModifiers::SHIFT)]),
+            Msg::FocusPreviousField,
+        ),
+        binding(seq(&[ctrl('p')]), Msg::FocusPreviousField),
+        binding(seq(&[ctrl('s')]), Msg::SubmitCreateForm),
+        binding(seq(&[ctrl('e')]), Msg::SubmitCreateAndEdit),
+        binding(seq(&[special(KeyCode::Esc)]), Msg::PopScreen),
+        binding(
+            seq(&[special(KeyCode::Backspace)]),
+            Msg::CreateFormInput(FormFieldEdit::Backspace),
+        ),
+        binding(
+            seq(&[special(KeyCode::Delete)]),
+            Msg::CreateFormInput(FormFieldEdit::Clear),
+        ),
+        binding(
+            seq(&[ctrl('u')]),
+            Msg::CreateFormInput(FormFieldEdit::Clear),
+        ),
+    ];
+
+    // Issue Type
+    if state.focused_field == 1 {
+        bindings.extend([
+            binding(seq(&[special(KeyCode::Left)]), Msg::CreateFormCycleType(-1)),
+            binding(seq(&[special(KeyCode::Right)]), Msg::CreateFormCycleType(1)),
+            binding(seq(&[plain('h')]), Msg::CreateFormCycleType(-1)),
+            binding(seq(&[plain('l')]), Msg::CreateFormCycleType(1)),
+        ]);
+    }
+
+    // Priority
+    if state.focused_field == 2 {
+        bindings.extend([
+            binding(
+                seq(&[special(KeyCode::Left)]),
+                Msg::CreateFormCyclePriority(-1),
+            ),
+            binding(
+                seq(&[special(KeyCode::Right)]),
+                Msg::CreateFormCyclePriority(1),
+            ),
+            binding(seq(&[plain('h')]), Msg::CreateFormCyclePriority(-1)),
+            binding(seq(&[plain('l')]), Msg::CreateFormCyclePriority(1)),
+        ]);
+    }
+
+    //  Save button
+    if state.focused_field == 4 {
+        bindings.push(binding(
+            seq(&[special(KeyCode::Enter)]),
+            Msg::SubmitCreateForm,
+        ));
+    }
+
+    if matches!(state.focused_field, 0 | 3) {
+        bindings.extend(printable_bindings());
+    }
+
+    bindings
+}
+
+fn printable_bindings() -> Vec<Binding> {
+    let mut bindings = Vec::new();
+
+    for byte in 0u8..=127 {
+        let ch = byte as char;
+        if !is_printable(ch) {
+            continue;
+        }
+
+        bindings.push(binding(
+            seq(&[plain(ch)]),
+            Msg::CreateFormInput(FormFieldEdit::Insert(ch)),
+        ));
+
+        if ch.is_ascii_alphabetic() {
+            bindings.push(binding(
+                seq(&[shift(ch.to_ascii_uppercase())]),
+                Msg::CreateFormInput(FormFieldEdit::Insert(ch.to_ascii_uppercase())),
+            ));
+        }
+    }
+
+    bindings
+}
+
+fn binding(sequence: Vec<KeyPattern>, msg: Msg) -> Binding {
+    Binding { sequence, msg }
+}
+
+fn seq(keys: &[KeyPattern]) -> Vec<KeyPattern> {
+    keys.to_vec()
+}
+
+fn plain(ch: char) -> KeyPattern {
+    KeyPattern::new(KeyCode::Char(ch), KeyModifiers::NONE)
+}
+
+fn shift(ch: char) -> KeyPattern {
+    KeyPattern::new(KeyCode::Char(ch), KeyModifiers::SHIFT)
+}
+
+fn ctrl(ch: char) -> KeyPattern {
+    KeyPattern::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+}
+
+fn special(code: KeyCode) -> KeyPattern {
+    KeyPattern::new(code, KeyModifiers::NONE)
+}
+
+fn special_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyPattern {
+    KeyPattern::new(code, modifiers)
 }
 
 fn is_ctrl_char(key: &KeyEvent, ch: char) -> bool {
@@ -378,19 +280,13 @@ fn is_printable(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::map_key;
+    use super::{KeyResolution, resolve_key};
     use crate::config::Config;
     use crate::tui::{
-        CreateFormState, DetailState, HelpState, Msg, PickerState, Priority, PriorityPickerState,
-        Screen, Status,
+        CreateFormState, DetailState, HelpState, InputState, Msg, PickerState, Priority,
+        PriorityPickerState, Screen, Status,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-    fn assert_bindings(screen: &Screen, bindings: &[(KeyEvent, Msg)]) {
-        for (key, expected) in bindings {
-            assert_eq!(map_key(screen, *key), Some(expected.clone()), "key {key:?}");
-        }
-    }
 
     fn board_screen() -> Screen {
         Screen::Board(Default::default())
@@ -437,534 +333,193 @@ mod tests {
         Screen::Help(HelpState)
     }
 
-    mod board {
-        use super::*;
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
 
-        #[test]
-        fn maps_documented_board_bindings() {
-            let screen = board_screen();
-            assert_bindings(
+    fn assert_single_key(screen: &Screen, key: KeyEvent, expected: Msg) {
+        assert_eq!(
+            resolve_key(screen, &InputState::default(), key),
+            KeyResolution::Dispatch(expected)
+        );
+    }
+
+    #[test]
+    fn board_and_detail_g_prefix_resolves_gg_and_gp() {
+        for screen in [board_screen(), detail_screen()] {
+            let pending = resolve_key(
                 &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
-                        Msg::MoveLeft,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-                        Msg::MoveLeft,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-                        Msg::MoveUp,
-                    ),
-                    (KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), Msg::MoveUp),
-                    (
-                        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
-                        Msg::MoveRight,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
-                        Msg::MoveRight,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
-                        Msg::JumpTop,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
-                        Msg::JumpTop,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
-                        Msg::JumpBottom,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
-                        Msg::JumpBottom,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-                        Msg::HalfPageDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
-                        Msg::HalfPageUp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                        Msg::OpenDetail,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
-                        Msg::OpenDetail,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
-                        Msg::OpenCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
-                        Msg::RequestRefresh,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-                        Msg::Quit,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
+                &InputState::default(),
+                key(KeyCode::Char('g'), KeyModifiers::NONE),
+            );
+            let KeyResolution::Pending(input) = pending else {
+                panic!("expected pending g prefix, got {pending:?}");
+            };
+            assert_eq!(input.pending_keys.len(), 1);
+
+            assert_eq!(
+                resolve_key(&screen, &input, key(KeyCode::Char('g'), KeyModifiers::NONE)),
+                KeyResolution::Dispatch(Msg::JumpTop)
+            );
+            assert_eq!(
+                resolve_key(&screen, &input, key(KeyCode::Char('p'), KeyModifiers::NONE)),
+                KeyResolution::Dispatch(Msg::GoToParent)
+            );
+
+            assert_single_key(
+                &screen,
+                key(KeyCode::Home, KeyModifiers::NONE),
+                Msg::JumpTop,
+            );
+            assert_single_key(
+                &screen,
+                key(KeyCode::Char('G'), KeyModifiers::SHIFT),
+                Msg::JumpBottom,
             );
         }
     }
 
-    mod detail {
-        use super::*;
+    #[test]
+    fn invalid_g_continuation_clears_pending_and_retries_current_key() {
+        let screen = board_screen();
+        let KeyResolution::Pending(input) = resolve_key(
+            &screen,
+            &InputState::default(),
+            key(KeyCode::Char('g'), KeyModifiers::NONE),
+        ) else {
+            panic!("expected pending g prefix");
+        };
 
-        #[test]
-        fn maps_documented_detail_bindings() {
-            let screen = detail_screen();
-            assert_bindings(
-                &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-                        Msg::MoveUp,
-                    ),
-                    (KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), Msg::MoveUp),
-                    (
-                        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
-                        Msg::JumpTop,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
-                        Msg::JumpTop,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
-                        Msg::JumpBottom,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
-                        Msg::JumpBottom,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-                        Msg::HalfPageDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
-                        Msg::HalfPageUp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
-                        Msg::EditCurrentIssue,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-                        Msg::OpenStatusPicker,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
-                        Msg::OpenPriorityPicker,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-        }
+        assert_eq!(
+            resolve_key(&screen, &input, key(KeyCode::Char('h'), KeyModifiers::NONE)),
+            KeyResolution::Dispatch(Msg::MoveLeft)
+        );
+        assert_eq!(
+            resolve_key(&screen, &input, key(KeyCode::Char('x'), KeyModifiers::NONE)),
+            KeyResolution::Ignore
+        );
+        assert_eq!(
+            resolve_key(&screen, &input, key(KeyCode::Char('?'), KeyModifiers::NONE)),
+            KeyResolution::Dispatch(Msg::OpenHelp)
+        );
     }
 
-    mod picker {
-        use super::*;
-
-        #[test]
-        fn maps_documented_picker_bindings() {
-            let screen = picker_screen();
-            assert_bindings(
-                &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-                        Msg::MoveUp,
-                    ),
-                    (KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), Msg::MoveUp),
-                    (
-                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                        Msg::MoveUp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                        Msg::SubmitStatusChange,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-        }
+    #[test]
+    fn single_key_bindings_still_work_across_screens() {
+        assert_single_key(
+            &board_screen(),
+            key(KeyCode::Char('j'), KeyModifiers::NONE),
+            Msg::MoveDown,
+        );
+        assert_single_key(
+            &board_screen(),
+            key(KeyCode::Enter, KeyModifiers::NONE),
+            Msg::OpenDetail,
+        );
+        assert_single_key(
+            &detail_screen(),
+            key(KeyCode::Char('e'), KeyModifiers::NONE),
+            Msg::EditCurrentIssue,
+        );
+        assert_single_key(
+            &detail_screen(),
+            key(KeyCode::Char('p'), KeyModifiers::NONE),
+            Msg::OpenPriorityPicker,
+        );
+        assert_single_key(
+            &picker_screen(),
+            key(KeyCode::Char('n'), KeyModifiers::CONTROL),
+            Msg::MoveDown,
+        );
+        assert_single_key(
+            &priority_picker_screen(),
+            key(KeyCode::Enter, KeyModifiers::NONE),
+            Msg::SubmitPriorityChange,
+        );
     }
 
-    mod priority_picker {
-        use super::*;
-
-        #[test]
-        fn maps_priority_picker_bindings() {
-            let screen = priority_picker_screen();
-            assert_bindings(
-                &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
-                        Msg::MoveDown,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-                        Msg::MoveUp,
-                    ),
-                    (KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), Msg::MoveUp),
-                    (
-                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                        Msg::MoveUp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                        Msg::SubmitPriorityChange,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-        }
-    }
-
-    mod create_form {
-        use super::*;
-
-        #[test]
-        fn maps_navigation_and_submit_bindings() {
-            assert_bindings(
-                &create_form_screen(4),
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
-                        Msg::FocusNextField,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
-                        Msg::FocusNextField,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
-                        Msg::FocusPreviousField,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                        Msg::FocusPreviousField,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
-                        Msg::SubmitCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
-                        Msg::SubmitCreateAndEdit,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                        Msg::SubmitCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-        }
-
-        #[test]
-        fn maps_type_and_priority_cycling_bindings() {
-            assert_bindings(
-                &create_form_screen(1),
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-                        Msg::CreateFormCycleType(-1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
-                        Msg::CreateFormCycleType(1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
-                        Msg::CreateFormCycleType(-1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
-                        Msg::CreateFormCycleType(1),
-                    ),
-                ],
-            );
-
-            assert_bindings(
-                &create_form_screen(2),
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-                        Msg::CreateFormCyclePriority(-1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
-                        Msg::CreateFormCyclePriority(1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
-                        Msg::CreateFormCyclePriority(-1),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
-                        Msg::CreateFormCyclePriority(1),
-                    ),
-                ],
-            );
-        }
-
-        #[test]
-        fn maps_text_edit_bindings() {
-            assert_bindings(
+    #[test]
+    fn create_form_bindings_remain_field_sensitive() {
+        assert_single_key(
+            &create_form_screen(4),
+            key(KeyCode::Enter, KeyModifiers::NONE),
+            Msg::SubmitCreateForm,
+        );
+        assert_single_key(
+            &create_form_screen(1),
+            key(KeyCode::Char('h'), KeyModifiers::NONE),
+            Msg::CreateFormCycleType(-1),
+        );
+        assert_single_key(
+            &create_form_screen(2),
+            key(KeyCode::Right, KeyModifiers::NONE),
+            Msg::CreateFormCyclePriority(1),
+        );
+        assert_single_key(
+            &create_form_screen(0),
+            key(KeyCode::Char('x'), KeyModifiers::NONE),
+            Msg::CreateFormInput(crate::tui::FormFieldEdit::Insert('x')),
+        );
+        assert_eq!(
+            resolve_key(
                 &create_form_screen(0),
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
-                        Msg::CreateFormInput(crate::tui::FormFieldEdit::Backspace),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
-                        Msg::CreateFormInput(crate::tui::FormFieldEdit::Clear),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
-                        Msg::CreateFormInput(crate::tui::FormFieldEdit::Clear),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
-                        Msg::CreateFormInput(crate::tui::FormFieldEdit::Insert('x')),
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
-                        Msg::CreateFormInput(crate::tui::FormFieldEdit::Insert('X')),
-                    ),
-                ],
-            );
-
-            assert_eq!(
-                map_key(
-                    &create_form_screen(0),
-                    KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
-                ),
-                None
-            );
-        }
-
-        #[test]
-        fn maps_discard_confirmation_bindings_when_modal_is_open() {
-            let screen = create_form_screen_with_pending_cancel(0, true);
-            assert_bindings(
-                &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
-                        Msg::ConfirmDiscardCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT),
-                        Msg::ConfirmDiscardCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
-                        Msg::CancelDiscardCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
-                        Msg::CancelDiscardCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::CancelDiscardCreateForm,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::OpenHelp,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-
-            assert_eq!(
-                map_key(
-                    &screen,
-                    KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)
-                ),
-                None
-            );
-            assert_eq!(
-                map_key(&screen, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-                None
-            );
-        }
+                &InputState::default(),
+                key(KeyCode::Enter, KeyModifiers::NONE)
+            ),
+            KeyResolution::Ignore
+        );
     }
 
-    mod help {
-        use super::*;
-
-        #[test]
-        fn maps_any_key_to_pop_screen_except_global_quit() {
-            let screen = help_screen();
-            assert_bindings(
+    #[test]
+    fn create_form_discard_modal_only_accepts_confirmation_keys_plus_globals() {
+        let screen = create_form_screen_with_pending_cancel(0, true);
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('y'), KeyModifiers::NONE),
+            Msg::ConfirmDiscardCreateForm,
+        );
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('n'), KeyModifiers::NONE),
+            Msg::CancelDiscardCreateForm,
+        );
+        assert_single_key(
+            &screen,
+            key(KeyCode::Esc, KeyModifiers::NONE),
+            Msg::CancelDiscardCreateForm,
+        );
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('?'), KeyModifiers::NONE),
+            Msg::OpenHelp,
+        );
+        assert_eq!(
+            resolve_key(
                 &screen,
-                &[
-                    (
-                        KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
-                        Msg::PopScreen,
-                    ),
-                    (
-                        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                        Msg::Quit,
-                    ),
-                ],
-            );
-        }
+                &InputState::default(),
+                key(KeyCode::Tab, KeyModifiers::NONE)
+            ),
+            KeyResolution::Ignore
+        );
     }
 
-    mod leaks {
-        use super::*;
-
-        #[test]
-        fn create_form_only_bindings_do_not_leak_to_board_detail_or_picker() {
-            let unique_create_form_bindings = [
-                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
-                KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
-                KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
-            ];
-
-            let other_screens = [
-                board_screen(),
-                detail_screen(),
-                picker_screen(),
-                priority_picker_screen(),
-            ];
-
-            for screen in &other_screens {
-                for key in unique_create_form_bindings {
-                    assert_eq!(map_key(screen, key), None, "screen {screen:?} key {key:?}");
-                }
-            }
-        }
+    #[test]
+    fn help_screen_consumes_any_key_except_global_quit() {
+        let screen = help_screen();
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('x'), KeyModifiers::NONE),
+            Msg::PopScreen,
+        );
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('?'), KeyModifiers::NONE),
+            Msg::PopScreen,
+        );
+        assert_single_key(
+            &screen,
+            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            Msg::Quit,
+        );
     }
 }

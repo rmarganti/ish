@@ -1,13 +1,13 @@
 ---
 # ish-1zsa
 title: 'TUI: wire gp binding and refresh visible keybind hints'
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
 - tui
 created_at: 2026-04-28T17:44:25.963930Z
-updated_at: 2026-04-28T17:44:25.963930Z
+updated_at: 2026-04-28T18:11:15.823733Z
 parent: ish-8ie2
 blocked_by:
 - ish-z15w
@@ -42,3 +42,19 @@ Today the help/footer/tests still describe the older single-key `g` jump-top beh
 - `mise exec -- cargo test tui::view::help -- --nocapture`
 - `mise exec -- cargo test tui::view::footer -- --nocapture`
 - `mise run ci`
+
+
+## Implementation notes
+- Added `gp` as a second `g`-prefix sequence in `src/tui/keymap.rs` for both board and detail screens, dispatching the existing semantic `Msg::GoToParent` action without changing the shared prefix resolver.
+- Updated `src/tui/view/help.rs` so board and detail help now advertise `gg / G` for top/bottom navigation and `gp` for parent navigation.
+- Updated `src/tui/view/footer.rs` and its regression tests so the visible footer hints stay aligned with the live multi-key navigation behavior.
+
+## Validation
+- `mise exec -- cargo test tui::keymap -- --nocapture`
+- `mise exec -- cargo test tui::view::help -- --nocapture`
+- `mise exec -- cargo test tui::view::footer -- --nocapture`
+- `mise run ci`
+- `mise exec -- ish check`
+
+## Follow-up notes
+- The `g` namespace now has two stable sequences (`gg`, `gp`). If more `g*` navigation is added later, extend the binding tables/help copy together so the prefix remains discoverable and documented.

@@ -19,6 +19,8 @@ fn footer_line(model: &Model) -> Line<'static> {
         Some(Screen::Board(_)) => hints(&[
             ("h/j/k/l", "move"),
             ("enter/space", "open"),
+            ("gg/G", "top/bot"),
+            ("gp", "parent"),
             ("c", "create"),
             ("r", "refresh"),
             ("?", "help"),
@@ -26,6 +28,8 @@ fn footer_line(model: &Model) -> Line<'static> {
         ]),
         Some(Screen::IssueDetail(_)) => hints(&[
             ("j/k", "scroll"),
+            ("gg/G", "top/bot"),
+            ("gp", "parent"),
             ("e", "edit"),
             ("s", "status"),
             ("p", "priority"),
@@ -85,7 +89,7 @@ mod tests {
         let mut model = model_with_board(vec![]);
         assert_eq!(
             footer_line(&model).to_string(),
-            "h/j/k/l move  enter/space open  c create  r refresh  ? help  q quit"
+            "h/j/k/l move  enter/space open  gg/G top/bot  gp parent  c create  r refresh  ? help  q quit"
         );
 
         model.screens.push(Screen::Help(HelpState));
@@ -115,7 +119,7 @@ mod tests {
 
         assert_eq!(
             footer_line(&model).to_string(),
-            "j/k scroll  e edit  s status  p priority  ? help  q back"
+            "j/k scroll  gg/G top/bot  gp parent  e edit  s status  p priority  ? help  q back"
         );
     }
 }

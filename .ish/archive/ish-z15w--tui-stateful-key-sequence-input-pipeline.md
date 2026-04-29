@@ -1,13 +1,13 @@
 ---
 # ish-z15w
 title: 'TUI: stateful key-sequence input pipeline'
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - tui
 created_at: 2026-04-28T17:44:25.682965Z
-updated_at: 2026-04-28T17:44:26.096Z
+updated_at: 2026-04-28T18:03:52.804096Z
 parent: ish-8ie2
 blocking:
 - ish-1zsa
@@ -46,3 +46,18 @@ The agreed design is to keep input state in the model and resolve keys inside th
 - `mise exec -- cargo test tui::keymap -- --nocapture`
 - `mise exec -- cargo test tui::update -- --nocapture`
 - `mise run ci`
+
+## Implementation notes
+- Moved raw terminal input into the Elm-style update loop via `Msg::KeyPressed(KeyEvent)`, so `src/tui/runtime.rs` now forwards keypresses without translating them eagerly.
+- Added `InputState` + `KeyPattern` to `src/tui/model.rs` so the TUI model can track pending key-sequence prefixes explicitly.
+- Replaced the old one-key matcher in `src/tui/keymap.rs` with a declarative sequence resolver that distinguishes exact matches, pending prefixes, and invalid continuations that clear/retry cleanly.
+- Converted board/detail jump-top handling from single-key `g` to prefix-based `gg` while preserving `Home`, `G`, help, and quit behavior.
+- Added focused regression coverage for the resolver and update loop, including pending-prefix state, `gg`, and invalid continuation retry semantics.
+
+## Validation
+- `mise exec -- cargo test tui::keymap -- --nocapture`
+- `mise exec -- cargo test tui::update -- --nocapture`
+- `mise run ci`
+
+## Follow-up notes
+- The resolver is now ready for additional multi-key bindings like `gp`; the remaining integration work should add the semantic parent-navigation action and then extend the binding/help copy on top of this shared sequence pipeline.
