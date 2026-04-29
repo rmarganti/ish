@@ -277,18 +277,26 @@ fn update_detail(mut model: Model, mut state: DetailState, msg: Msg) -> (Model, 
                 return (model, effects);
             };
 
-            let Some(parent) = find_issue(&model, &parent_id) else {
-                set_status_line(
-                    &mut model,
-                    format!("Parent {parent_id} was not found"),
-                    Severity::Info,
-                );
-                replace_top_screen(&mut model, Screen::IssueDetail(state));
-                return (model, effects);
+            let parent_id = match find_issue(&model, &parent_id) {
+                Some(parent) => parent.id.clone(),
+                None => {
+                    set_status_line(
+                        &mut model,
+                        format!("Parent {parent_id} was not found"),
+                        Severity::Info,
+                    );
+                    replace_top_screen(&mut model, Screen::IssueDetail(state));
+                    return (model, effects);
+                }
             };
 
-            state.id = parent.id.clone();
-            state.scroll = 0;
+            replace_top_screen(
+                &mut model,
+                Screen::IssueDetail(DetailState {
+                    id: parent_id,
+                    scroll: 0,
+                }),
+            );
             return (model, effects);
         }
         Msg::PopScreen => {
