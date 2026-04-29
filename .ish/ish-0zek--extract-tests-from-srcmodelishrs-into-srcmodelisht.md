@@ -1,7 +1,7 @@
 ---
 # ish-0zek
 title: Extract tests from src/model/ish.rs into src/model/ish/tests.rs
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
 - tests
 - maintainability
 created_at: 2026-04-29T19:49:44.156752159Z
-updated_at: 2026-04-29T19:49:44.156752159Z
+updated_at: 2026-04-29T20:00:10.903842Z
 parent: ish-w1u4
 ---
 
@@ -33,8 +33,21 @@ This module is also a good future split candidate, and the new layout should mak
 - Do not mix in broader model refactors.
 
 ## Acceptance criteria
-- [ ] `src/model/ish.rs` is replaced by `src/model/ish/mod.rs`.
-- [ ] The inline `#[cfg(test)]` module is moved into `src/model/ish/tests.rs`.
-- [ ] Existing callers continue to compile unchanged.
-- [ ] Test intent and coverage remain intact.
-- [ ] `mise run ci` passes.
+- [x] `src/model/ish.rs` is replaced by `src/model/ish/mod.rs`.
+- [x] The inline `#[cfg(test)]` module is moved into `src/model/ish/tests.rs`.
+- [x] Existing callers continue to compile unchanged.
+- [x] Test intent and coverage remain intact.
+- [x] `mise run ci` passes.
+
+## Implementation notes
+- Converted `src/model/ish.rs` into the directory-style module layout at `src/model/ish/mod.rs`, preserving the existing `crate::model::ish` module path while making later focused splits easier.
+- Moved the full inline `#[cfg(test)]` suite into `src/model/ish/tests.rs` and reconnected it with a small `#[cfg(test)] mod tests;` declaration in `mod.rs`.
+- Kept the extracted tests using `super::*` so future internal extraction of frontmatter/tag/body/ordering helpers can happen without rewriting the test module imports.
+
+## Validation
+- `mise exec -- cargo test model::ish -- --nocapture`
+- `mise exec -- ish check`
+- `mise run ci`
+
+## Follow-up notes
+- `src/model/ish/mod.rs` is now ready for future internal extraction into smaller helpers like frontmatter, tags, body, identity, or order logic without another top-level module rename.
