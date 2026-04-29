@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::model::ish::{Ish, normalize_tag};
 use crate::tui::{
     BOARD_COLUMNS, BoardState, CreateFormState, DetailState, Effect, HelpState, IssueDraft,
@@ -291,6 +289,7 @@ fn update_detail(mut model: Model, mut state: DetailState, msg: Msg) -> (Model, 
 
             state.id = parent.id.clone();
             state.scroll = 0;
+            return (model, effects);
         }
         Msg::PopScreen => {
             pop_screen(&mut model);

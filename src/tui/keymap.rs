@@ -176,13 +176,7 @@ fn create_form_bindings(state: &CreateFormState) -> Vec<Binding> {
         ),
     ];
 
-    if state.focused_field == 4 {
-        bindings.push(binding(
-            seq(&[special(KeyCode::Enter)]),
-            Msg::SubmitCreateForm,
-        ));
-    }
-
+    // Issue Type
     if state.focused_field == 1 {
         bindings.extend([
             binding(seq(&[special(KeyCode::Left)]), Msg::CreateFormCycleType(-1)),
@@ -192,6 +186,7 @@ fn create_form_bindings(state: &CreateFormState) -> Vec<Binding> {
         ]);
     }
 
+    // Priority
     if state.focused_field == 2 {
         bindings.extend([
             binding(
@@ -205,6 +200,14 @@ fn create_form_bindings(state: &CreateFormState) -> Vec<Binding> {
             binding(seq(&[plain('h')]), Msg::CreateFormCyclePriority(-1)),
             binding(seq(&[plain('l')]), Msg::CreateFormCyclePriority(1)),
         ]);
+    }
+
+    //  Save button
+    if state.focused_field == 4 {
+        bindings.push(binding(
+            seq(&[special(KeyCode::Enter)]),
+            Msg::SubmitCreateForm,
+        ));
     }
 
     if matches!(state.focused_field, 0 | 3) {
