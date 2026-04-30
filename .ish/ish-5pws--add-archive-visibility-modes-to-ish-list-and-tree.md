@@ -1,7 +1,7 @@
 ---
 # ish-5pws
 title: Add archive visibility modes to ish list and tree rendering
-status: todo
+status: completed
 type: task
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
 - cli
 - list
 created_at: 2026-04-30T19:00:46.423664Z
-updated_at: 2026-04-30T19:00:46.423664Z
+updated_at: 2026-04-30T19:11:41.202267Z
 parent: ish-i6nu
 blocked_by:
 - ish-rgga
@@ -43,3 +43,15 @@ The list tree renderer also needs archive-aware context rules:
 - Tree rendering follows the agreed context rules in all three visibility modes.
 - `mise exec -- ish check`
 - `mise run ci`
+
+
+## Implementation notes
+- Added mutually exclusive `--archived` and `--all` flags to `ish list` so archive visibility is explicit instead of leaking through normal filters.
+- Introduced a small internal `ArchiveVisibility` mode and apply it before status/type/search filtering, which keeps archived ishes hidden unless the user opts in.
+- Scoped list tree context to the same archive-visibility universe: default mode drops archived ancestors, `--archived` drops active context, and `--all` preserves the full hierarchy.
+- Tightened `--ready` to reject physically archived ishes even under `--all`.
+
+## Verification notes
+- Added CLI parser coverage for `--archived`, `--all`, and their conflict.
+- Added list-command coverage for default/archive/all visibility, non-piercing completed-status filtering, ready filtering, and tree-context behavior across active/archived parent-child mixes.
+- Validation passed with `mise exec -- ish check` and `mise run ci`.
