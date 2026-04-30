@@ -4,10 +4,21 @@ use crate::model::ish::Ish;
 use chrono::{TimeZone, Utc};
 
 fn issue(id: &str, title: &str, status: &str, ish_type: &str, parent: Option<&str>) -> Ish {
+    issue_with_path(id, title, status, ish_type, parent, &format!("{id}.md"))
+}
+
+fn issue_with_path(
+    id: &str,
+    title: &str,
+    status: &str,
+    ish_type: &str,
+    parent: Option<&str>,
+    path: &str,
+) -> Ish {
     Ish {
         id: id.to_string(),
         slug: title.to_ascii_lowercase().replace(' ', "-"),
-        path: format!("{id}.md"),
+        path: path.to_string(),
         title: title.to_string(),
         status: status.to_string(),
         ish_type: ish_type.to_string(),
@@ -85,6 +96,43 @@ fn build_roadmap_honors_include_done_and_status_filters() {
     assert_eq!(roadmap.milestones.len(), 1);
     assert_eq!(roadmap.milestones[0].milestone.id, "ish-m2");
     assert_eq!(roadmap.milestones[0].epics[0].epic.id, "ish-e1");
+}
+
+#[test]
+fn build_roadmap_excludes_archived_ishes_even_with_include_done() {
+    let config = Config::default();
+    let roadmap = build_roadmap(
+        &config,
+        &[
+            issue("ish-m1", "Active milestone", "todo", "milestone", None),
+            issue("ish-e1", "Active epic", "completed", "epic", Some("ish-m1")),
+            issue_with_path(
+                "ish-e2",
+                "Archived epic",
+                "completed",
+                "epic",
+                Some("ish-m1"),
+                "archive/ish-e2.md",
+            ),
+            issue_with_path(
+                "ish-f1",
+                "Archived feature",
+                "todo",
+                "feature",
+                Some("ish-e2"),
+                "archive/ish-f1.md",
+            ),
+        ],
+        &RoadmapOptions {
+            include_done: true,
+            ..RoadmapOptions::default()
+        },
+    );
+
+    assert_eq!(roadmap.milestones.len(), 1);
+    assert_eq!(roadmap.milestones[0].epics.len(), 1);
+    assert_eq!(roadmap.milestones[0].epics[0].epic.id, "ish-e1");
+    assert!(roadmap.milestones[0].epics[0].items.is_empty());
 }
 
 #[test]

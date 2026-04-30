@@ -11,12 +11,11 @@ use super::filters::sort_ish_refs;
 
 pub(super) fn render_tree_output(
     sorted: &[&Ish],
-    all_ishes: &[Ish],
+    tree_universe: &[&Ish],
     store: &Store,
     config: &Config,
     sort_mode: SortMode,
 ) -> String {
-    let all_refs = all_ishes.iter().collect::<Vec<_>>();
     let implicit_statuses = sorted
         .iter()
         .filter_map(|ish| {
@@ -27,7 +26,7 @@ pub(super) fn render_tree_output(
         .collect::<HashMap<_, _>>();
     let tree = build_tree(
         sorted,
-        &all_refs,
+        tree_universe,
         |items| sort_ish_refs(items, sort_mode, config),
         &implicit_statuses,
     );

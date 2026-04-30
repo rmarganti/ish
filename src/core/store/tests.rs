@@ -1,5 +1,6 @@
 use super::{
-    CreateIsh, LinkCheckResult, LinkCycle, LinkRef, LinkType, Store, StoreError, UpdateIsh,
+    ArchiveWarning, ArchiveWarningKind, CreateIsh, LinkCheckResult, LinkCycle, LinkRef, LinkType,
+    Store, StoreError, UpdateIsh,
 };
 use crate::config::Config;
 use chrono::{TimeZone, Utc};
@@ -920,6 +921,108 @@ fn blocker_queries_include_direct_blockers_from_both_link_directions() {
         vec!["ish-incoming".to_string(), "ish-listed".to_string()]
     );
     assert!(store.is_explicitly_blocked("target"));
+}
+
+#[test]
+fn archived_blockers_do_not_count_as_active_blockers() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    let archive_dir = root.join("archive");
+    fs::create_dir_all(&archive_dir).expect("archive dir should exist");
+    fs::write(
+        root.join("ish-target--target.md"),
+        "---\n# ish-target\ntitle: Target\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n  - ish-archived-listed\n---\n\nTarget body.\n",
+    )
+    .expect("target file should be written");
+    fs::write(
+        archive_dir.join("ish-archived-listed--listed.md"),
+        "---\n# ish-archived-listed\ntitle: Archived Listed\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nArchived listed blocker body.\n",
+    )
+    .expect("archived listed blocker file should be written");
+    fs::write(
+        archive_dir.join("ish-archived-incoming--incoming.md"),
+        "---\n# ish-archived-incoming\ntitle: Archived Incoming\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nArchived incoming blocker body.\n",
+    )
+    .expect("archived incoming blocker file should be written");
+    fs::write(
+        root.join("ish-active-blocker--active-blocker.md"),
+        "---\n# ish-active-blocker\ntitle: Active Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nActive blocker body.\n",
+    )
+    .expect("active blocker file should be written");
+
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load files");
+
+    assert_eq!(
+        store.find_active_blockers("target"),
+        vec!["ish-active-blocker".to_string()]
+    );
+}
+
+#[test]
+fn find_archive_warnings_reports_mixed_active_and_archived_relationships() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    let archive_dir = root.join("archive");
+    fs::create_dir_all(&archive_dir).expect("archive dir should exist");
+    fs::write(
+        archive_dir.join("ish-archived-parent--archived-parent.md"),
+        "---\n# ish-archived-parent\ntitle: Archived Parent\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nArchived parent body.\n",
+    )
+    .expect("archived parent file should be written");
+    fs::write(
+        archive_dir.join("ish-archived-worker--archived-worker.md"),
+        "---\n# ish-archived-worker\ntitle: Archived Worker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-active-parent\nblocked_by:\n  - ish-active-blocker\n---\n\nArchived worker body.\n",
+    )
+    .expect("archived worker file should be written");
+    fs::write(
+        root.join("ish-active-parent--active-parent.md"),
+        "---\n# ish-active-parent\ntitle: Active Parent\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nActive parent body.\n",
+    )
+    .expect("active parent file should be written");
+    fs::write(
+        root.join("ish-active-child--active-child.md"),
+        "---\n# ish-active-child\ntitle: Active Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-archived-parent\nblocking:\n  - ish-archived-parent\n---\n\nActive child body.\n",
+    )
+    .expect("active child file should be written");
+    fs::write(
+        root.join("ish-active-blocker--active-blocker.md"),
+        "---\n# ish-active-blocker\ntitle: Active Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nActive blocker body.\n",
+    )
+    .expect("active blocker file should be written");
+
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load files");
+
+    assert_eq!(
+        store.find_archive_warnings(),
+        vec![
+            ArchiveWarning {
+                kind: ArchiveWarningKind::ActiveChildWithArchivedParent,
+                source_id: "ish-active-child".to_string(),
+                link_type: LinkType::Parent,
+                target_id: "ish-archived-parent".to_string(),
+            },
+            ArchiveWarning {
+                kind: ArchiveWarningKind::ActiveIshReferencesArchivedIsh,
+                source_id: "ish-active-child".to_string(),
+                link_type: LinkType::Blocking,
+                target_id: "ish-archived-parent".to_string(),
+            },
+            ArchiveWarning {
+                kind: ArchiveWarningKind::ArchivedIshReferencesActiveIsh,
+                source_id: "ish-archived-worker".to_string(),
+                link_type: LinkType::Parent,
+                target_id: "ish-active-parent".to_string(),
+            },
+            ArchiveWarning {
+                kind: ArchiveWarningKind::ArchivedIshReferencesActiveIsh,
+                source_id: "ish-archived-worker".to_string(),
+                link_type: LinkType::BlockedBy,
+                target_id: "ish-active-blocker".to_string(),
+            },
+        ]
+    );
 }
 
 #[test]

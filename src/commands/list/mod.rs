@@ -1,12 +1,15 @@
 use crate::app::{AppContext, AppError, json_output_error};
 use crate::cli::{ListArgs, ListSortArg};
 use crate::core::SortMode;
+use crate::model::ish::Ish;
 use crate::output::{output_success_multiple, warning};
 
 mod filters;
 mod render;
 
-use filters::{filter_ishes, sort_ish_refs, validate_list_args};
+use filters::{
+    ArchiveVisibility, archive_visibility, filter_ishes, sort_ish_refs, validate_list_args,
+};
 use render::{list_json_value, render_tree_output};
 
 pub(crate) fn list_command(args: ListArgs, json: bool) -> Result<Option<String>, AppError> {
@@ -46,9 +49,26 @@ pub(crate) fn list_command(args: ListArgs, json: bool) -> Result<Option<String>,
         return Ok(Some(warning("No ishes found")));
     }
 
+    let tree_universe = tree_universe(&all_ishes, archive_visibility(&args));
+
     Ok(Some(render_tree_output(
-        &sorted, &all_ishes, &store, &config, sort_mode,
+        &sorted,
+        &tree_universe,
+        &store,
+        &config,
+        sort_mode,
     )))
+}
+
+fn tree_universe(all_ishes: &[Ish], visibility: ArchiveVisibility) -> Vec<&Ish> {
+    all_ishes
+        .iter()
+        .filter(|ish| match visibility {
+            ArchiveVisibility::ActiveOnly => !ish.is_archived(),
+            ArchiveVisibility::ArchivedOnly => ish.is_archived(),
+            ArchiveVisibility::All => true,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -60,6 +80,32 @@ mod tests {
     use crate::test_support::{TestDir, WorkingDirGuard, write_test_ish};
     use serde_json::Value;
     use std::fs;
+
+    fn base_list_args() -> ListArgs {
+        ListArgs {
+            status: Vec::new(),
+            no_status: Vec::new(),
+            ish_type: Vec::new(),
+            no_type: Vec::new(),
+            priority: Vec::new(),
+            no_priority: Vec::new(),
+            tag: Vec::new(),
+            no_tag: Vec::new(),
+            has_parent: false,
+            no_parent: false,
+            parent: None,
+            has_blocking: false,
+            no_blocking: false,
+            is_blocked: false,
+            ready: false,
+            archived: false,
+            all: false,
+            search: None,
+            sort: None,
+            quiet: false,
+            full: false,
+        }
+    }
 
     #[test]
     fn list_command_json_filters_and_omits_body_by_default() {
@@ -99,24 +145,12 @@ mod tests {
         let output = list_command(
             ListArgs {
                 status: vec!["todo".to_string()],
-                no_status: Vec::new(),
                 ish_type: vec!["task".to_string()],
-                no_type: Vec::new(),
                 priority: vec!["high".to_string()],
-                no_priority: Vec::new(),
                 tag: vec!["CLI".to_string()],
-                no_tag: Vec::new(),
-                has_parent: false,
-                no_parent: false,
-                parent: None,
-                has_blocking: false,
-                no_blocking: false,
-                is_blocked: false,
-                ready: false,
                 search: Some("matches".to_string()),
                 sort: Some(ListSortArg::Id),
-                quiet: false,
-                full: false,
+                ..base_list_args()
             },
             true,
         )
@@ -152,25 +186,9 @@ mod tests {
 
         let output = list_command(
             ListArgs {
-                status: Vec::new(),
-                no_status: Vec::new(),
-                ish_type: Vec::new(),
-                no_type: Vec::new(),
-                priority: Vec::new(),
-                no_priority: Vec::new(),
-                tag: Vec::new(),
-                no_tag: Vec::new(),
-                has_parent: false,
-                no_parent: false,
-                parent: None,
-                has_blocking: false,
-                no_blocking: false,
-                is_blocked: false,
-                ready: false,
-                search: None,
                 sort: Some(ListSortArg::Id),
-                quiet: false,
                 full: true,
+                ..base_list_args()
             },
             true,
         )
@@ -270,25 +288,10 @@ mod tests {
 
         let output = list_command(
             ListArgs {
-                status: Vec::new(),
-                no_status: Vec::new(),
-                ish_type: Vec::new(),
-                no_type: Vec::new(),
-                priority: Vec::new(),
-                no_priority: Vec::new(),
-                tag: Vec::new(),
-                no_tag: Vec::new(),
-                has_parent: false,
-                no_parent: false,
-                parent: None,
-                has_blocking: false,
-                no_blocking: false,
-                is_blocked: false,
                 ready: true,
-                search: None,
                 sort: Some(ListSortArg::Id),
                 quiet: true,
-                full: false,
+                ..base_list_args()
             },
             false,
         )
@@ -335,25 +338,8 @@ mod tests {
 
         let output = list_command(
             ListArgs {
-                status: Vec::new(),
-                no_status: Vec::new(),
-                ish_type: Vec::new(),
-                no_type: Vec::new(),
-                priority: Vec::new(),
-                no_priority: Vec::new(),
                 tag: vec!["cli".to_string()],
-                no_tag: Vec::new(),
-                has_parent: false,
-                no_parent: false,
-                parent: None,
-                has_blocking: false,
-                no_blocking: false,
-                is_blocked: false,
-                ready: false,
-                search: None,
-                sort: None,
-                quiet: false,
-                full: false,
+                ..base_list_args()
             },
             false,
         )
@@ -388,27 +374,7 @@ mod tests {
 
         let output = run(Cli {
             json: true,
-            command: Commands::List(ListArgs {
-                status: Vec::new(),
-                no_status: Vec::new(),
-                ish_type: Vec::new(),
-                no_type: Vec::new(),
-                priority: Vec::new(),
-                no_priority: Vec::new(),
-                tag: Vec::new(),
-                no_tag: Vec::new(),
-                has_parent: false,
-                no_parent: false,
-                parent: None,
-                has_blocking: false,
-                no_blocking: false,
-                is_blocked: false,
-                ready: false,
-                search: None,
-                sort: None,
-                quiet: false,
-                full: false,
-            }),
+            command: Commands::List(base_list_args()),
         })
         .expect("run should succeed")
         .output
@@ -416,5 +382,173 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&output).expect("json should parse");
         assert_eq!(parsed[0]["id"], "ish-abcd");
+    }
+
+    #[test]
+    fn list_command_archive_visibility_filters_and_tree_contexts() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        let archive_root = store_root.join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        write_test_ish(
+            &archive_root,
+            "ish-parent",
+            "Archived Parent",
+            "completed",
+            "feature",
+            Some("normal"),
+            "Parent body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ish(
+            &store_root,
+            "ish-child",
+            "Active Child",
+            "todo",
+            "task",
+            Some("normal"),
+            "Child body.",
+            Some("ish-parent"),
+            &[],
+            &[],
+            &["cli"],
+        );
+        write_test_ish(
+            &store_root,
+            "ish-active",
+            "Active Root",
+            "todo",
+            "feature",
+            Some("normal"),
+            "Active body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ish(
+            &archive_root,
+            "ish-archived-child",
+            "Archived Child",
+            "completed",
+            "task",
+            Some("normal"),
+            "Archived child body.",
+            Some("ish-active"),
+            &[],
+            &[],
+            &["cli"],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let default_output = list_command(
+            ListArgs {
+                tag: vec!["cli".to_string()],
+                quiet: false,
+                ..base_list_args()
+            },
+            false,
+        )
+        .expect("default list should succeed")
+        .expect("default list should print output");
+        assert!(default_output.contains("ish-child"));
+        assert!(!default_output.contains("ish-parent"));
+
+        let archived_output = list_command(
+            ListArgs {
+                archived: true,
+                ..base_list_args()
+            },
+            false,
+        )
+        .expect("archived list should succeed")
+        .expect("archived list should print output");
+        assert!(archived_output.contains("ish-parent"));
+        assert!(archived_output.contains("ish-archived-child"));
+        assert!(!archived_output.contains("ish-active"));
+
+        let all_output = list_command(
+            ListArgs {
+                tag: vec!["cli".to_string()],
+                all: true,
+                ..base_list_args()
+            },
+            false,
+        )
+        .expect("all list should succeed")
+        .expect("all list should print output");
+        assert!(all_output.contains("ish-parent"));
+        assert!(all_output.contains("ish-child"));
+        assert!(all_output.contains("ish-active"));
+        assert!(all_output.contains("ish-archived-child"));
+        assert!(all_output.contains("└──"));
+
+        let filtered_archived = list_command(
+            ListArgs {
+                status: vec!["completed".to_string()],
+                ..base_list_args()
+            },
+            true,
+        )
+        .expect("default filtered list should succeed")
+        .expect("default filtered list should print output");
+        let parsed: Value = serde_json::from_str(&filtered_archived).expect("json should parse");
+        assert_eq!(parsed, Value::Array(Vec::new()));
+    }
+
+    #[test]
+    fn list_command_ready_excludes_archived_even_with_all() {
+        let temp = TestDir::new();
+        let config = Config::default();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        let archive_root = store_root.join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        write_test_ish(
+            &store_root,
+            "ish-ready",
+            "Ready item",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        write_test_ish(
+            &archive_root,
+            "ish-archived-ready",
+            "Archived ready item",
+            "todo",
+            "task",
+            Some("normal"),
+            "Body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let output = list_command(
+            ListArgs {
+                ready: true,
+                all: true,
+                quiet: true,
+                ..base_list_args()
+            },
+            false,
+        )
+        .expect("ready list should succeed")
+        .expect("ready list should print output");
+
+        assert_eq!(output.trim(), "ish-ready");
     }
 }

@@ -166,6 +166,12 @@ pub struct ListArgs {
     /// Only include ready ishes.
     #[arg(long)]
     pub ready: bool,
+    /// Show archived ishes only.
+    #[arg(long, conflicts_with = "all")]
+    pub archived: bool,
+    /// Show active and archived ishes.
+    #[arg(long, conflicts_with = "archived")]
+    pub all: bool,
     /// Case-insensitive substring search.
     #[arg(short = 'S', long = "search")]
     pub search: Option<String>,
@@ -322,10 +328,46 @@ mod tests {
         match cli.command {
             crate::cli::Commands::List(args) => {
                 assert!(args.ready);
+                assert!(!args.archived);
+                assert!(!args.all);
                 assert!(!args.quiet);
             }
             _ => panic!("expected list command"),
         }
+    }
+
+    #[test]
+    fn cli_parses_list_archive_visibility_flags() {
+        let archived = crate::cli::Cli::try_parse_from(["ish", "list", "--archived"])
+            .expect("archived flag should parse successfully");
+        let all = crate::cli::Cli::try_parse_from(["ish", "list", "--all"])
+            .expect("all flag should parse successfully");
+
+        match archived.command {
+            crate::cli::Commands::List(args) => {
+                assert!(args.archived);
+                assert!(!args.all);
+            }
+            _ => panic!("expected list command"),
+        }
+
+        match all.command {
+            crate::cli::Commands::List(args) => {
+                assert!(args.all);
+                assert!(!args.archived);
+            }
+            _ => panic!("expected list command"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_conflicting_list_archive_visibility_flags() {
+        let error = match crate::cli::Cli::try_parse_from(["ish", "list", "--archived", "--all"]) {
+            Ok(_) => panic!("conflicting archive visibility flags should fail"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 
     #[test]

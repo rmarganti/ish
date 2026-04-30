@@ -7,6 +7,23 @@ use crate::model::ish::Ish;
 use crate::output::ErrorCode;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArchiveVisibility {
+    ActiveOnly,
+    ArchivedOnly,
+    All,
+}
+
+pub(super) fn archive_visibility(args: &ListArgs) -> ArchiveVisibility {
+    if args.all {
+        ArchiveVisibility::All
+    } else if args.archived {
+        ArchiveVisibility::ArchivedOnly
+    } else {
+        ArchiveVisibility::ActiveOnly
+    }
+}
+
 pub(super) fn validate_list_args(args: &ListArgs, config: &Config) -> Result<(), AppError> {
     validate_named_filters(
         "status",
@@ -54,6 +71,7 @@ pub(super) fn filter_ishes<'a>(
         .as_deref()
         .map(|parent| store.normalize_id(parent));
     let search = args.search.as_deref().map(str::to_ascii_lowercase);
+    let archive_visibility = archive_visibility(args);
 
     all_ishes
         .iter()
@@ -63,6 +81,7 @@ pub(super) fn filter_ishes<'a>(
                 store,
                 config,
                 args,
+                archive_visibility,
                 normalized_parent.as_deref(),
                 search.as_deref(),
             )
@@ -75,10 +94,18 @@ fn match_filters(
     store: &Store,
     config: &Config,
     args: &ListArgs,
+    archive_visibility: ArchiveVisibility,
     normalized_parent: Option<&str>,
     search: Option<&str>,
 ) -> bool {
     let priority = ish.priority.as_deref().unwrap_or("normal");
+
+    if archive_visibility == ArchiveVisibility::ActiveOnly && ish.is_archived() {
+        return false;
+    }
+    if archive_visibility == ArchiveVisibility::ArchivedOnly && !ish.is_archived() {
+        return false;
+    }
 
     if !args.status.is_empty() && !args.status.iter().any(|status| status == &ish.status) {
         return false;
@@ -146,7 +173,8 @@ fn match_filters(
 }
 
 fn is_ready(ish: &Ish, store: &Store, config: &Config) -> bool {
-    ish.status != "in-progress"
+    !ish.is_archived()
+        && ish.status != "in-progress"
         && ish.status != "draft"
         && !config.is_archive_status(&ish.status)
         && !store.is_blocked(&ish.id)

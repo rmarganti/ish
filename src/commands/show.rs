@@ -101,6 +101,10 @@ fn render_show_human(ish: &Ish, store: &Store, config: &Config) -> String {
 
     lines.push(format!("Path: {}", ish.path));
     lines.push(format!(
+        "Archived: {}",
+        if ish.is_archived() { "yes" } else { "no" }
+    ));
+    lines.push(format!(
         "Created: {} | Updated: {} | ETag: {}",
         ish.created_at.to_rfc3339(),
         ish.updated_at.to_rfc3339(),
@@ -241,6 +245,7 @@ mod tests {
         assert_eq!(parsed[0]["id"], "ish-target");
         assert_eq!(parsed[0]["parent"], "ish-parent");
         assert_eq!(parsed[0]["blocking"][0], "ish-blocker");
+        assert_eq!(parsed[0]["archived"], false);
         assert!(parsed[0].get("etag").is_some());
 
         let raw_output = show_command(
@@ -331,11 +336,30 @@ mod tests {
             &[],
             &["demo"],
         );
+        let archive_root = store_root.join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        write_test_ish(
+            &archive_root,
+            "ish-archived",
+            "Archived",
+            "completed",
+            "task",
+            Some("normal"),
+            "Archived body.",
+            None,
+            &[],
+            &[],
+            &[],
+        );
         let _guard = WorkingDirGuard::change_to(temp.path());
 
         let output = show_command(
             ShowArgs {
-                ids: vec!["child".to_string(), "parent".to_string()],
+                ids: vec![
+                    "child".to_string(),
+                    "parent".to_string(),
+                    "archived".to_string(),
+                ],
                 raw: false,
                 body_only: false,
                 etag_only: false,
@@ -347,11 +371,15 @@ mod tests {
 
         assert!(output.contains("ish-child"));
         assert!(output.contains("Path: ish-child--child.md"));
+        assert!(output.contains("Archived: no"));
         assert!(output.contains("Parent: ish-parent"));
         assert!(output.contains("Blocking: ish-blocker"));
         assert!(output.contains("Inherited status: completed from ish-parent"));
         assert!(output.contains("#demo"));
         assert!(output.contains("Child body."));
+        assert!(output.contains("Path: archive/ish-archived--archived.md"));
+        assert!(output.contains("Archived: yes"));
+        assert!(output.contains("Archived body."));
         assert!(output.contains("════════"));
     }
 }
