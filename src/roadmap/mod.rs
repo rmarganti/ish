@@ -115,6 +115,7 @@ pub fn roadmap_output(
 pub fn build_roadmap(config: &Config, ishes: &[Ish], options: &RoadmapOptions) -> Roadmap {
     let visible = ishes
         .iter()
+        .filter(|ish| !ish.is_archived())
         .filter(|ish| options.include_done || !config.is_archive_status(&ish.status))
         .cloned()
         .collect::<Vec<_>>();

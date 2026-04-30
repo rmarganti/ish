@@ -12,3 +12,9 @@
 - Tightened `ish list --ready` so physically archived ishes stay hidden even under `--all`, and added coverage for visibility modes, non-piercing completed filtering, ready filtering, and mixed active/archived tree context cases.
 - `mise exec -- ish check` and `mise run ci` both pass after the list/archive visibility changes.
 - Best next work is now `ish-d7pz` (roadmap + show archive-state output), then `ish-64cd` (`ish check` archive-state warnings).
+- Chose `ish-d7pz` over the parent umbrella and `ish-64cd` because it is the strongest remaining user-facing slice after list visibility: it finishes archive-aware discovery/output semantics for roadmap and show without entangling the larger validation-warning plumbing.
+- Updated `ish roadmap` to exclude physically archived ishes before done-status filtering, so `--include-done` now includes completed active items but still suppresses archived ones.
+- Updated human `ish show` output to print `Archived: yes/no` directly under `Path:`, and expanded show tests to cover both active and archived items plus the transitive JSON `archived` field expectation.
+- Added roadmap regression coverage proving archived epics/features stay hidden even when `include_done: true` is set.
+- `mise exec -- ish check` and `mise run ci` both pass after the roadmap/show archive-state changes.
+- Best next work is now `ish-64cd` (`ish check` archive-state warnings), which is the last remaining child for the archived/inactive-state feature.
