@@ -14,6 +14,7 @@ pub(crate) fn check_command(args: CheckArgs, json: bool) -> Result<RunOutcome, A
     let mut store = context.store;
     let config_checks = validate_config(&config);
     let initial_links = store.check_all_links();
+    let archive_warnings = store.find_archive_warnings();
     let issues_found = config_checks.issue_count() + link_issue_count(&initial_links);
 
     let fixed_links = if args.fix {
@@ -33,10 +34,22 @@ pub(crate) fn check_command(args: CheckArgs, json: bool) -> Result<RunOutcome, A
     };
 
     let output = if json {
-        render_check_json(&config_checks, &initial_links, &final_links, fixed_links)
-            .map_err(json_output_error)?
+        render_check_json(
+            &config_checks,
+            &initial_links,
+            &final_links,
+            &archive_warnings,
+            fixed_links,
+        )
+        .map_err(json_output_error)?
     } else {
-        render_check_human(&config_checks, &initial_links, &final_links, fixed_links)
+        render_check_human(
+            &config_checks,
+            &initial_links,
+            &final_links,
+            &archive_warnings,
+            fixed_links,
+        )
     };
 
     Ok(RunOutcome {
@@ -138,9 +151,92 @@ mod tests {
 
         assert_eq!(outcome.exit_code, ExitCode::FAILURE);
         assert_eq!(parsed["summary"]["issues_found"], Value::from(1));
+        assert_eq!(parsed["summary"]["archive_warning_count"], Value::from(0));
         assert_eq!(
             parsed["checks"]["links"]["initial"]["broken_links"][0]["link_type"],
             Value::String("blocked_by".to_string())
+        );
+        assert_eq!(parsed["checks"]["archive_warnings"], Value::Array(vec![]));
+    }
+
+    #[test]
+    fn check_command_reports_archive_warnings_without_failing() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Check Archive Warning Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        let archive_root = store_root.join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        fs::write(
+            archive_root.join("ish-parent--parent.md"),
+            "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nParent body.\n",
+        )
+        .expect("archived parent file should exist");
+        fs::write(
+            store_root.join("ish-child--child.md"),
+            "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n\nChild body.\n",
+        )
+        .expect("child file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let outcome =
+            check_command(CheckArgs { fix: false }, false).expect("check command should succeed");
+        let output = outcome.output.expect("check command should print output");
+
+        assert_eq!(outcome.exit_code, ExitCode::SUCCESS);
+        assert!(output.contains("archive-state warnings"));
+        assert!(output.contains("active child ish-child has archived parent ish-parent"));
+        assert!(output.contains("Summary: no issues found, 1 archive-state warning(s)"));
+    }
+
+    #[test]
+    fn check_command_json_includes_structured_archive_warnings() {
+        let temp = TestDir::new();
+        let mut config = Config::default();
+        config.project.name = "Check Archive Warning JSON Test".to_string();
+        config.save(temp.path()).expect("config should save");
+        let store_root = temp.path().join(".ish");
+        let archive_root = store_root.join("archive");
+        fs::create_dir_all(&archive_root).expect("archive root should exist");
+        fs::write(
+            archive_root.join("ish-archived--archived.md"),
+            "---\n# ish-archived\ntitle: Archived\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nArchived body.\n",
+        )
+        .expect("archived file should exist");
+        fs::write(
+            store_root.join("ish-active--active.md"),
+            "---\n# ish-active\ntitle: Active\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-archived\n---\n\nActive body.\n",
+        )
+        .expect("active file should exist");
+        let _guard = WorkingDirGuard::change_to(temp.path());
+
+        let outcome = run(Cli {
+            json: true,
+            command: Commands::Check(CheckArgs { fix: false }),
+        })
+        .expect("check command should succeed");
+        let output = outcome.output.expect("check command should print output");
+        let parsed: Value = serde_json::from_str(&output).expect("json should parse");
+
+        assert_eq!(outcome.exit_code, ExitCode::SUCCESS);
+        assert_eq!(parsed["summary"]["issues_found"], Value::from(0));
+        assert_eq!(parsed["summary"]["archive_warning_count"], Value::from(1));
+        assert_eq!(
+            parsed["checks"]["archive_warnings"][0]["kind"],
+            Value::String("active_ish_references_archived_ish".to_string())
+        );
+        assert_eq!(
+            parsed["checks"]["archive_warnings"][0]["link_type"],
+            Value::String("blocking".to_string())
+        );
+        assert_eq!(
+            parsed["checks"]["archive_warnings"][0]["source_id"],
+            Value::String("ish-active".to_string())
+        );
+        assert_eq!(
+            parsed["checks"]["archive_warnings"][0]["target_id"],
+            Value::String("ish-archived".to_string())
         );
     }
 

@@ -3,7 +3,7 @@ use crate::model::ish::{
     BodyError, Ish, append_with_separator, build_filename, new_id, replace_once, slugify,
 };
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
@@ -106,7 +106,8 @@ struct DiskFrontmatter {
     blocked_by: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LinkType {
     Parent,
     Blocking,
@@ -131,6 +132,22 @@ pub struct LinkCheckResult {
     pub broken_links: Vec<LinkRef>,
     pub self_links: Vec<LinkRef>,
     pub cycles: Vec<LinkCycle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveWarningKind {
+    ActiveChildWithArchivedParent,
+    ActiveIshReferencesArchivedIsh,
+    ArchivedIshReferencesActiveIsh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct ArchiveWarning {
+    pub kind: ArchiveWarningKind,
+    pub source_id: String,
+    pub link_type: LinkType,
+    pub target_id: String,
 }
 
 impl Store {
@@ -637,6 +654,58 @@ impl Store {
         });
 
         result
+    }
+
+    pub fn find_archive_warnings(&self) -> Vec<ArchiveWarning> {
+        let mut warnings = HashSet::new();
+
+        for ish in self.ishes.values() {
+            let ish_archived = ish.is_archived();
+
+            for link in collect_links(ish) {
+                let Some(target) = self.ishes.get(&link.target_id) else {
+                    continue;
+                };
+
+                match (ish_archived, target.is_archived(), link.link_type) {
+                    (false, true, LinkType::Parent) => {
+                        warnings.insert(ArchiveWarning {
+                            kind: ArchiveWarningKind::ActiveChildWithArchivedParent,
+                            source_id: link.source_id,
+                            link_type: link.link_type,
+                            target_id: link.target_id,
+                        });
+                    }
+                    (false, true, _) => {
+                        warnings.insert(ArchiveWarning {
+                            kind: ArchiveWarningKind::ActiveIshReferencesArchivedIsh,
+                            source_id: link.source_id,
+                            link_type: link.link_type,
+                            target_id: link.target_id,
+                        });
+                    }
+                    (true, false, _) => {
+                        warnings.insert(ArchiveWarning {
+                            kind: ArchiveWarningKind::ArchivedIshReferencesActiveIsh,
+                            source_id: link.source_id,
+                            link_type: link.link_type,
+                            target_id: link.target_id,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut warnings = warnings.into_iter().collect::<Vec<_>>();
+        warnings.sort_by(|left, right| {
+            archive_warning_kind_rank(left.kind)
+                .cmp(&archive_warning_kind_rank(right.kind))
+                .then_with(|| left.source_id.cmp(&right.source_id))
+                .then_with(|| link_type_rank(left.link_type).cmp(&link_type_rank(right.link_type)))
+                .then_with(|| left.target_id.cmp(&right.target_id))
+        });
+        warnings
     }
 
     pub fn fix_broken_links(&mut self) -> Result<usize, StoreError> {
@@ -1150,6 +1219,14 @@ fn link_type_rank(link_type: LinkType) -> usize {
         LinkType::Parent => 0,
         LinkType::Blocking => 1,
         LinkType::BlockedBy => 2,
+    }
+}
+
+fn archive_warning_kind_rank(kind: ArchiveWarningKind) -> usize {
+    match kind {
+        ArchiveWarningKind::ActiveChildWithArchivedParent => 0,
+        ArchiveWarningKind::ActiveIshReferencesArchivedIsh => 1,
+        ArchiveWarningKind::ArchivedIshReferencesActiveIsh => 2,
     }
 }
 

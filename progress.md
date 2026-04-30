@@ -18,3 +18,8 @@
 - Added roadmap regression coverage proving archived epics/features stay hidden even when `include_done: true` is set.
 - `mise exec -- ish check` and `mise run ci` both pass after the roadmap/show archive-state changes.
 - Best next work is now `ish-64cd` (`ish check` archive-state warnings), which is the last remaining child for the archived/inactive-state feature.
+- Chose `ish-64cd` because it was the strongest remaining ready task: it finishes the archived/inactive-state feature by surfacing suspicious mixed active/archived relationships without changing blocker or visibility semantics again.
+- Added structured `ArchiveWarning` / `ArchiveWarningKind` detection in `Store::find_archive_warnings()` covering archived-parent, active→archived, and archived→active relationships across `parent`, `blocking`, and `blocked_by` links.
+- Threaded archive warnings through `ish check` human and JSON output; human output now shows a dedicated warning section, JSON now exposes `checks.archive_warnings` plus `summary.archive_warning_count`, and warning-only cases still exit successfully.
+- Added regression coverage for store-level warning detection plus human/JSON `ish check` behavior, then ran `mise exec -- ish check` and `mise run ci` successfully.
+- All archived/inactive-state child tasks are now complete; the parent feature `ish-i6nu` is ready for closeout/archive when desired.

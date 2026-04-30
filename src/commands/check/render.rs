@@ -1,4 +1,6 @@
-use crate::core::store::{LinkCheckResult, LinkCycle, LinkRef, LinkType};
+use crate::core::store::{
+    ArchiveWarning, ArchiveWarningKind, LinkCheckResult, LinkCycle, LinkRef, LinkType,
+};
 use crate::output::{danger, output_success, success, warning};
 use serde_json::{Value, json};
 
@@ -8,6 +10,7 @@ pub(super) fn render_check_human(
     config_checks: &ConfigChecks,
     initial_links: &LinkCheckResult,
     final_links: &LinkCheckResult,
+    archive_warnings: &[ArchiveWarning],
     fixed_links: Option<usize>,
 ) -> String {
     let mut lines = vec![format_check_line(
@@ -72,17 +75,37 @@ pub(super) fn render_check_human(
         ));
     }
 
+    if archive_warnings.is_empty() {
+        lines.push(success("✓ archive-state warnings: none"));
+    } else {
+        lines.push(warning(&format!(
+            "! archive-state warnings: {}",
+            archive_warning_summary(archive_warnings)
+        )));
+        for warning_item in archive_warnings {
+            lines.push(warning(&format!(
+                "  - {}",
+                archive_warning_message(warning_item)
+            )));
+        }
+    }
+
     let issues_found = config_checks.issue_count() + link_issue_count(initial_links);
     let remaining = config_checks.issue_count() + link_issue_count(final_links);
     let fixed = fixed_links.unwrap_or(0);
-    let summary = if issues_found == 0 {
+    let archive_summary = archive_warning_suffix(archive_warnings.len());
+    let summary = if issues_found == 0 && archive_warnings.is_empty() {
         success("Summary: no issues found")
+    } else if issues_found == 0 {
+        warning(&format!("Summary: no issues found{archive_summary}"))
     } else if fixed_links.is_some() {
         warning(&format!(
-            "Summary: {issues_found} issue(s) found, {fixed} fixed, {remaining} remaining"
+            "Summary: {issues_found} issue(s) found, {fixed} fixed, {remaining} remaining{archive_summary}"
         ))
     } else {
-        warning(&format!("Summary: {issues_found} issue(s) found"))
+        warning(&format!(
+            "Summary: {issues_found} issue(s) found{archive_summary}"
+        ))
     };
     lines.push(summary);
 
@@ -144,6 +167,7 @@ pub(super) fn render_check_json(
     config_checks: &ConfigChecks,
     initial_links: &LinkCheckResult,
     final_links: &LinkCheckResult,
+    archive_warnings: &[ArchiveWarning],
     fixed_links: Option<usize>,
 ) -> Result<String, String> {
     output_success(json!({
@@ -165,12 +189,14 @@ pub(super) fn render_check_json(
             "links": {
                 "initial": link_checks_json(initial_links),
                 "final": link_checks_json(final_links),
-            }
+            },
+            "archive_warnings": archive_warnings,
         },
         "summary": {
             "issues_found": config_checks.issue_count() + link_issue_count(initial_links),
             "fixed_links": fixed_links.unwrap_or(0),
             "remaining_issues": config_checks.issue_count() + link_issue_count(final_links),
+            "archive_warning_count": archive_warnings.len(),
         }
     }))
 }
@@ -196,4 +222,53 @@ fn cycle_json(cycle: &LinkCycle) -> Value {
         "link_type": link_type_label(cycle.link_type),
         "path": cycle.path,
     })
+}
+
+fn archive_warning_summary(warnings: &[ArchiveWarning]) -> String {
+    if warnings.is_empty() {
+        return "none".to_string();
+    }
+
+    warnings
+        .iter()
+        .map(archive_warning_message)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn archive_warning_message(warning_item: &ArchiveWarning) -> String {
+    match warning_item.kind {
+        ArchiveWarningKind::ActiveChildWithArchivedParent => format!(
+            "active child {} has archived parent {}",
+            warning_item.source_id, warning_item.target_id
+        ),
+        ArchiveWarningKind::ActiveIshReferencesArchivedIsh => format!(
+            "active ish {} {} archived ish {}",
+            warning_item.source_id,
+            archive_warning_link_label(warning_item.link_type),
+            warning_item.target_id
+        ),
+        ArchiveWarningKind::ArchivedIshReferencesActiveIsh => format!(
+            "archived ish {} {} active ish {}",
+            warning_item.source_id,
+            archive_warning_link_label(warning_item.link_type),
+            warning_item.target_id
+        ),
+    }
+}
+
+fn archive_warning_link_label(link_type: LinkType) -> &'static str {
+    match link_type {
+        LinkType::Parent => "has parent",
+        LinkType::Blocking => "blocks",
+        LinkType::BlockedBy => "is blocked by",
+    }
+}
+
+fn archive_warning_suffix(count: usize) -> String {
+    if count == 0 {
+        String::new()
+    } else {
+        format!(", {count} archive-state warning(s)")
+    }
 }
