@@ -292,18 +292,32 @@ fn test_contains_blocked_substring_detects_offensive_words() {
 }
 
 #[test]
-fn test_to_json() {
+fn test_to_json_for_active_ish_includes_archived_false() {
     let ish = sample_ish();
     let json = ish.to_json("abc123");
 
     assert_eq!(json.id, "ish-a1b2");
     assert_eq!(json.etag, "abc123");
     assert_eq!(json.ish_type, "bug");
+    assert!(!json.archived);
+    assert!(!ish.is_archived());
 
     // Verify it serializes to JSON without error.
     let json_str = serde_json::to_string(&json).expect("JSON serialize failed");
     assert!(json_str.contains("\"type\":\"bug\""));
+    assert!(json_str.contains("\"archived\":false"));
     assert!(json_str.contains("\"etag\":\"abc123\""));
+}
+
+#[test]
+fn test_to_json_for_archived_ish_includes_archived_true() {
+    let mut ish = sample_ish();
+    ish.path = "archive/ish-a1b2--fix-the-widget.md".to_string();
+
+    let json = ish.to_json("abc123");
+
+    assert!(ish.is_archived());
+    assert!(json.archived);
 }
 
 #[test]

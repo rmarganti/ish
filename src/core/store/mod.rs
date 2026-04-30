@@ -425,7 +425,7 @@ impl Store {
             .ishes
             .get(&normalized_id)
             .ok_or(StoreError::NotFound(normalized_id))?;
-        Ok(ish.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/")))
+        Ok(ish.is_archived())
     }
 
     pub fn load_and_unarchive(&mut self, id: &str) -> Result<(), StoreError> {
@@ -454,10 +454,7 @@ impl Store {
         let ids_to_archive = self
             .ishes
             .values()
-            .filter(|ish| {
-                self.config.is_archive_status(&ish.status)
-                    && !ish.path.starts_with(&format!("{ARCHIVE_DIR_NAME}/"))
-            })
+            .filter(|ish| self.config.is_archive_status(&ish.status) && !ish.is_archived())
             .map(|ish| ish.id.clone())
             .collect::<Vec<_>>();
 
@@ -534,6 +531,7 @@ impl Store {
                 .blocking
                 .iter()
                 .any(|blocked_id| blocked_id == &normalized_id)
+                && !candidate.is_archived()
                 && !self.config.is_archive_status(&candidate.status)
             {
                 blockers.insert(candidate.id.clone());
@@ -984,7 +982,7 @@ impl Store {
     fn has_active_status(&self, id: &str) -> bool {
         self.ishes
             .get(id)
-            .is_some_and(|ish| !self.config.is_archive_status(&ish.status))
+            .is_some_and(|ish| !ish.is_archived() && !self.config.is_archive_status(&ish.status))
     }
 }
 

@@ -84,6 +84,7 @@ pub struct IshJson {
     pub id: String,
     pub slug: String,
     pub path: String,
+    pub archived: bool,
     pub title: String,
     pub status: String,
     #[serde(rename = "type")]
@@ -266,12 +267,17 @@ impl Ish {
         }
     }
 
+    pub fn is_archived(&self) -> bool {
+        self.path.starts_with("archive/")
+    }
+
     /// Convert to JSON-serializable representation.
     pub fn to_json(&self, etag: &str) -> IshJson {
         IshJson {
             id: self.id.clone(),
             slug: self.slug.clone(),
             path: self.path.clone(),
+            archived: self.is_archived(),
             title: self.title.clone(),
             status: self.status.clone(),
             ish_type: self.ish_type.clone(),

@@ -280,7 +280,7 @@ impl Model {
         let candidates = self
             .issues
             .iter()
-            .filter(|ish| !is_archived(ish))
+            .filter(|ish| !ish.is_archived())
             .filter(|ish| ish.status != Status::Scrapped.as_str())
             .filter(|ish| ish.status == status.as_str())
             .collect::<Vec<_>>();
@@ -416,10 +416,6 @@ fn compare_case_insensitive(left: &str, right: &str) -> Ordering {
     left.to_ascii_lowercase()
         .cmp(&right.to_ascii_lowercase())
         .then_with(|| left.cmp(right))
-}
-
-fn is_archived(ish: &Ish) -> bool {
-    ish.path.starts_with("archive/")
 }
 
 fn priority_for_ish(ish: &Ish) -> Priority {

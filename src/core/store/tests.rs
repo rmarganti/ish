@@ -923,6 +923,42 @@ fn blocker_queries_include_direct_blockers_from_both_link_directions() {
 }
 
 #[test]
+fn archived_blockers_do_not_count_as_active_blockers() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    let archive_dir = root.join("archive");
+    fs::create_dir_all(&archive_dir).expect("archive dir should exist");
+    fs::write(
+        root.join("ish-target--target.md"),
+        "---\n# ish-target\ntitle: Target\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n  - ish-archived-listed\n---\n\nTarget body.\n",
+    )
+    .expect("target file should be written");
+    fs::write(
+        archive_dir.join("ish-archived-listed--listed.md"),
+        "---\n# ish-archived-listed\ntitle: Archived Listed\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nArchived listed blocker body.\n",
+    )
+    .expect("archived listed blocker file should be written");
+    fs::write(
+        archive_dir.join("ish-archived-incoming--incoming.md"),
+        "---\n# ish-archived-incoming\ntitle: Archived Incoming\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nArchived incoming blocker body.\n",
+    )
+    .expect("archived incoming blocker file should be written");
+    fs::write(
+        root.join("ish-active-blocker--active-blocker.md"),
+        "---\n# ish-active-blocker\ntitle: Active Blocker\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocking:\n  - ish-target\n---\n\nActive blocker body.\n",
+    )
+    .expect("active blocker file should be written");
+
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load files");
+
+    assert_eq!(
+        store.find_active_blockers("target"),
+        vec!["ish-active-blocker".to_string()]
+    );
+}
+
+#[test]
 fn blocker_queries_include_ancestor_blockers() {
     let temp = TestDir::new();
     let root = temp.path().join(".ish");
