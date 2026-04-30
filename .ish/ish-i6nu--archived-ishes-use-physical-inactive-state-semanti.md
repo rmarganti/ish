@@ -1,7 +1,7 @@
 ---
 # ish-i6nu
 title: Archived ishes use physical inactive-state semantics
-status: todo
+status: completed
 type: feature
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
 - cli
 - validation
 created_at: 2026-04-30T19:00:46.406397Z
-updated_at: 2026-04-30T19:00:46.406397Z
+updated_at: 2026-04-30T19:21:36.182353Z
 ---
 
 ## Context
@@ -41,3 +41,15 @@ The implementation plan for this work lives at `.local/plans/1777575288-archived
 - All child ishes are completed with focused tests.
 - `mise exec -- ish check` reports a coherent workspace.
 - `mise run ci` passes after the full feature lands.
+
+## Implementation notes
+- Closed out the archived/inactive-state feature after all four child tasks landed: `ish-rgga` (shared archive predicate + JSON/store plumbing), `ish-5pws` (`ish list` archive visibility + tree context), `ish-d7pz` (roadmap/show archive-state output), and `ish-64cd` (`ish check` archive-state warnings).
+- The feature now uses physical archive location (`.ish/archive/`) as the single source of truth for inactive/archive semantics across list, roadmap, show/JSON, blocker readiness, TUI board modeling, and `ish check` warnings.
+- Archive-eligible statuses (`completed` / `scrapped`) keep their existing archive-command / done-status meaning, but no longer implicitly stand in for physical archived state.
+
+## Validation
+- `mise exec -- ish check`
+- `mise run ci`
+
+## Follow-up notes
+- No remaining child work is open for this feature. Future archive-state follow-ons should build on `Ish::is_archived()` and the structured `archive_warnings` output rather than reintroducing path-prefix checks or status-based archive semantics.

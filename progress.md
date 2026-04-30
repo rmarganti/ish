@@ -23,3 +23,4 @@
 - Threaded archive warnings through `ish check` human and JSON output; human output now shows a dedicated warning section, JSON now exposes `checks.archive_warnings` plus `summary.archive_warning_count`, and warning-only cases still exit successfully.
 - Added regression coverage for store-level warning detection plus human/JSON `ish check` behavior, then ran `mise exec -- ish check` and `mise run ci` successfully.
 - All archived/inactive-state child tasks are now complete; the parent feature `ish-i6nu` is ready for closeout/archive when desired.
+- Closed out `ish-i6nu` after confirming the full archived/inactive-state feature passes `mise exec -- ish check` and `mise run ci`; future archive follow-ons should reuse `Ish::is_archived()` and `archive_warnings` instead of reviving path-prefix or status-based ad hoc checks.
