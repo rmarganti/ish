@@ -53,3 +53,10 @@ Use `ish list --json` for machine-readable output. Prefer structured output when
 - Prefer small, focused edits that keep the existing structure intact.
 - Record useful implementation notes, verification details, and follow-up context in the relevant ish before marking it complete.
 - Run the project validation loop after changes and fix failures before considering the work done.
+
+## Ish Lifecycle Rules
+
+- When you begin working on an ish, immediately run `ish update <id> --status in-progress` before making any changes.
+- When you finish working on an ish, run `ish update <id> --status completed` before moving on.
+- Never leave an ish in `todo` status while actively working on it.
+- Never leave an ish in `in-progress` status after you have finished working on it.
