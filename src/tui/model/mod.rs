@@ -257,6 +257,7 @@ pub struct Model {
     pub input: InputState,
     pub status_line: Option<StatusLine>,
     pub status_line_set_at: Option<Instant>,
+    pub last_auto_refresh_at: Instant,
     pub quit: bool,
     pub term_too_small: bool,
 }
@@ -271,6 +272,7 @@ impl Model {
             input: InputState::default(),
             status_line: None,
             status_line_set_at: None,
+            last_auto_refresh_at: Instant::now(),
             quit: false,
             term_too_small: false,
         }

@@ -12,6 +12,7 @@ const HALF_PAGE_ROWS: usize = BOARD_VISIBLE_ROWS / 2;
 const DETAIL_HALF_PAGE: u16 = 10;
 const STATUS_LINE_TTL: Duration = Duration::from_secs(3);
 const ERROR_STICKY_TTL: Duration = Duration::from_secs(1);
+const AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const CREATE_FORM_FIELD_COUNT: usize = 5;
 
 pub fn update(mut model: Model, msg: Msg) -> (Model, Vec<Effect>) {
@@ -64,7 +65,12 @@ fn handle_global(model: &mut Model, msg: &Msg) -> Option<Vec<Effect>> {
         }
         Msg::Tick => {
             expire_status_line(model);
-            Some(Vec::new())
+            if model.last_auto_refresh_at.elapsed() >= AUTO_REFRESH_INTERVAL {
+                model.last_auto_refresh_at = Instant::now();
+                Some(vec![Effect::LoadIssues])
+            } else {
+                Some(Vec::new())
+            }
         }
         Msg::Resize(width, height) => {
             model.term_too_small = *width < 80 || *height < 20;
@@ -73,6 +79,10 @@ fn handle_global(model: &mut Model, msg: &Msg) -> Option<Vec<Effect>> {
         Msg::DismissStatusLine => {
             clear_status_line(model);
             Some(Vec::new())
+        }
+        Msg::RequestRefresh => {
+            model.last_auto_refresh_at = Instant::now();
+            Some(vec![Effect::LoadIssues])
         }
         Msg::IssuesLoaded(result) => {
             match result {
@@ -119,7 +129,7 @@ fn update_board(mut model: Model, mut state: BoardState, msg: Msg) -> (Model, Ve
     let selected_column = state.selected_column;
     ensure_board_cursor(&model, &mut state, selected_column);
 
-    let mut effects = Vec::new();
+    let effects = Vec::new();
     match msg {
         Msg::MoveLeft if state.selected_column > 0 => {
             state.selected_column -= 1;
@@ -193,7 +203,6 @@ fn update_board(mut model: Model, mut state: BoardState, msg: Msg) -> (Model, Ve
             model.screens.push(Screen::Help(HelpState));
             return (model, effects);
         }
-        Msg::RequestRefresh => effects.push(Effect::LoadIssues),
         _ => {}
     }
 

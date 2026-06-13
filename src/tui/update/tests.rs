@@ -1,4 +1,4 @@
-use super::{ERROR_STICKY_TTL, STATUS_LINE_TTL, update};
+use super::{AUTO_REFRESH_INTERVAL, ERROR_STICKY_TTL, STATUS_LINE_TTL, update};
 use crate::test_support::tui::{IshBuilder, dispatch, model_with_board};
 use crate::tui::{
     BoardState, CreateFormState, DetailState, Effect, HelpState, IssuePatch, Model, Msg,
@@ -66,6 +66,33 @@ fn empty_board_tick_smoke_test() {
 
     assert!(!model.quit);
     assert!(effects.is_empty());
+}
+
+#[test]
+fn tick_auto_refreshes_after_interval() {
+    let mut model = model_with_board(vec![]);
+    model.last_auto_refresh_at = Instant::now() - AUTO_REFRESH_INTERVAL - Duration::from_millis(1);
+
+    let (model, effects) = update(model, Msg::Tick);
+
+    assert_eq!(effects, vec![Effect::LoadIssues]);
+    assert!(model.last_auto_refresh_at.elapsed() < AUTO_REFRESH_INTERVAL);
+}
+
+#[test]
+fn manual_refresh_is_global() {
+    let mut model = model_with_board(vec![IshBuilder::new("todo").build()]);
+    model.screens.push(Screen::IssueDetail(DetailState {
+        id: "ish-todo".to_string(),
+        scroll: 0,
+    }));
+    model.last_auto_refresh_at = Instant::now() - AUTO_REFRESH_INTERVAL - Duration::from_millis(1);
+
+    let (model, effects) = update(model, Msg::RequestRefresh);
+
+    assert_eq!(effects, vec![Effect::LoadIssues]);
+    assert!(matches!(top_screen(&model), Screen::IssueDetail(_)));
+    assert!(model.last_auto_refresh_at.elapsed() < AUTO_REFRESH_INTERVAL);
 }
 
 #[test]
