@@ -252,10 +252,10 @@ impl Store {
 
         let original = self.ishes.clone();
         self.ishes.insert(id.clone(), ish);
-        for target_id in requested_blocking {
-            let Some(target) = self.ishes.get_mut(&target_id) else {
+        for target_id in &requested_blocking {
+            let Some(target) = self.ishes.get_mut(target_id) else {
                 self.ishes = original.clone();
-                return Err(StoreError::NotFound(target_id));
+                return Err(StoreError::NotFound(target_id.clone()));
             };
             if !target.blocked_by.contains(&id) {
                 target.blocked_by.push(id.clone());
@@ -267,14 +267,12 @@ impl Store {
         }
         self.rebuild_blocking_views();
 
-        let changed = self
-            .ishes
-            .values()
-            .filter(|candidate| candidate.id == id || candidate.blocked_by.contains(&id))
-            .cloned()
-            .collect::<Vec<_>>();
-        for candidate in &changed {
-            if let Err(error) = self.save_to_disk(candidate) {
+        for changed_id in requested_blocking.iter().chain(std::iter::once(&id)) {
+            if let Err(error) = self.save_to_disk(
+                self.ishes
+                    .get(changed_id)
+                    .expect("changed ish should exist"),
+            ) {
                 self.ishes = original;
                 return Err(error);
             }
@@ -395,22 +393,24 @@ impl Store {
         let path_changed = current.path != updated.path;
         let original = self.ishes.clone();
         let original_legacy_blocking = self.legacy_blocking.clone();
+        let add_blocking = normalize_ids(self, add_blocking);
+        let remove_blocking = normalize_ids(self, remove_blocking);
         self.ishes.insert(normalized_id.clone(), updated);
-        for target_id in normalize_ids(self, add_blocking) {
-            let Some(target) = self.ishes.get_mut(&target_id) else {
+        for target_id in &add_blocking {
+            let Some(target) = self.ishes.get_mut(target_id) else {
                 self.ishes = original.clone();
                 self.legacy_blocking = original_legacy_blocking.clone();
-                return Err(StoreError::NotFound(target_id));
+                return Err(StoreError::NotFound(target_id.clone()));
             };
             if !target.blocked_by.contains(&normalized_id) {
                 target.blocked_by.push(normalized_id.clone());
             }
         }
-        for target_id in normalize_ids(self, remove_blocking) {
+        for target_id in &remove_blocking {
             if let Some(targets) = self.legacy_blocking.get_mut(&normalized_id) {
-                targets.retain(|legacy_target| legacy_target != &target_id);
+                targets.retain(|legacy_target| legacy_target != target_id);
             }
-            if let Some(target) = self.ishes.get_mut(&target_id) {
+            if let Some(target) = self.ishes.get_mut(target_id) {
                 target
                     .blocked_by
                     .retain(|blocker| blocker != &normalized_id);
@@ -427,19 +427,14 @@ impl Store {
             fs::rename(&original_path, &updated_path).map_err(StoreError::Io)?;
         }
 
-        let changed = self
-            .ishes
-            .values()
-            .filter(|candidate| {
-                candidate.id == normalized_id
-                    || candidate.blocked_by.contains(&normalized_id)
-                    || original
-                        .get(&candidate.id)
-                        .is_some_and(|old| old.blocked_by.contains(&normalized_id))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for candidate in &changed {
+        for changed_id in add_blocking
+            .iter()
+            .chain(&remove_blocking)
+            .chain(std::iter::once(&normalized_id))
+        {
+            let Some(candidate) = self.ishes.get(changed_id) else {
+                continue;
+            };
             if let Err(error) = self.save_to_disk(candidate) {
                 self.ishes = original;
                 return Err(error);
@@ -505,12 +500,13 @@ impl Store {
 
         // `blocking` is a derived view. Preserve only legacy persisted values until
         // `ish check --fix` migrates them to canonical `blocked_by` entries.
-        let legacy_blocking = self
+        let mut persisted = ish.clone();
+        persisted.blocking = self
             .legacy_blocking
             .get(&ish.id)
             .cloned()
             .unwrap_or_default();
-        fs::write(path, ish.render_with_legacy_blocking(legacy_blocking)).map_err(StoreError::Io)
+        fs::write(path, persisted.render()).map_err(StoreError::Io)
     }
 
     pub fn normalize_id(&self, id: &str) -> String {

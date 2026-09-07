@@ -223,15 +223,6 @@ impl Ish {
     }
 
     fn try_render(&self) -> Result<String, serde_yaml::Error> {
-        self.try_render_with_blocking(self.blocking.clone())
-    }
-
-    pub(crate) fn render_with_legacy_blocking(&self, blocking: Vec<String>) -> String {
-        self.try_render_with_blocking(blocking)
-            .expect("failed to serialize frontmatter")
-    }
-
-    fn try_render_with_blocking(&self, blocking: Vec<String>) -> Result<String, serde_yaml::Error> {
         let fm = Frontmatter {
             title: self.title.clone(),
             status: self.status.clone(),
@@ -242,7 +233,7 @@ impl Ish {
             updated_at: self.updated_at,
             order: self.order.clone(),
             parent: self.parent.clone(),
-            blocking,
+            blocking: self.blocking.clone(),
             blocked_by: self.blocked_by.clone(),
         };
 
