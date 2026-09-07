@@ -357,7 +357,11 @@ fn tree_prefix(ancestors_have_more: &[bool], is_last: bool) -> String {
     }
 
     let mut prefix = String::new();
-    for has_more in &ancestors_have_more[..ancestors_have_more.len() - 1] {
+    // The first entry describes the top-level root. Roots have no visible
+    // ancestor column, so render every continuation after that entry. The
+    // previous implementation dropped the final entry instead, which omitted
+    // the immediate parent's continuation line from all nested descendants.
+    for has_more in ancestors_have_more.iter().skip(1) {
         if *has_more {
             prefix.push_str("│   ");
         } else {

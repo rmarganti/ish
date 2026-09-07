@@ -183,15 +183,11 @@ fn draw_tree_gutter(
     let buf = frame.buffer_mut();
     let right_edge = area.x + area.width;
 
-    // Vertical bars for every ancestor whose chain is still continuing. The
-    // last entry of `ancestors_have_more` corresponds to the current node's
-    // immediate parent — that one is encoded by `is_last` and rendered as the
-    // connector glyph below, so we skip it here (matches CLI semantics).
-    for (i, &has_more) in ancestors_have_more
-        .iter()
-        .take(depth.saturating_sub(1))
-        .enumerate()
-    {
+    // The first entry represents the top-level root, which has no visible
+    // ancestor column. Every later entry is a real ancestor continuation,
+    // including the immediate parent. Dropping that final entry would leave
+    // gaps between nested rows and their higher-level siblings.
+    for (i, &has_more) in ancestors_have_more.iter().skip(1).enumerate() {
         if !has_more {
             continue;
         }

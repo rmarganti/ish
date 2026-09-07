@@ -270,6 +270,54 @@ fn render_tree_uses_connectors_implicit_status_tags_and_truncation() {
 }
 
 #[test]
+fn render_tree_continues_ancestor_lines_through_nested_descendants() {
+    let config = Config::default();
+    let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
+    let parent = tree_ish(
+        "ish-parent",
+        "Parent",
+        Some("ish-root"),
+        &[],
+        Some("normal"),
+    );
+    let grandchild = tree_ish(
+        "ish-grandchild",
+        "Grandchild",
+        Some("ish-parent"),
+        &[],
+        Some("normal"),
+    );
+    let sibling = tree_ish(
+        "ish-sibling",
+        "Sibling",
+        Some("ish-root"),
+        &[],
+        Some("normal"),
+    );
+    let tree = build_tree(
+        &[&root, &parent, &grandchild, &sibling],
+        &[&root, &parent, &grandchild, &sibling],
+        |items| {
+            let mut sorted = items.to_vec();
+            sorted.sort_by(|left, right| left.id.cmp(&right.id));
+            sorted
+        },
+        &HashMap::new(),
+    );
+
+    let rendered = with_color_override(false, || render_tree(&tree, &config, 14, false, 120));
+    let grandchild_line = rendered
+        .lines()
+        .find(|line| line.contains("ish-grandchild"))
+        .expect("grandchild line");
+
+    assert!(
+        grandchild_line.starts_with("│   └── "),
+        "ancestor continuation was missing: {grandchild_line:?}"
+    );
+}
+
+#[test]
 fn render_tree_dims_context_only_ancestors() {
     let config = Config::default();
     let root = tree_ish("ish-root", "Root", None, &[], Some("normal"));
