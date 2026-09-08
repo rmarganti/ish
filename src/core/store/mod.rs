@@ -17,6 +17,9 @@ pub struct Store {
     root: PathBuf,
     config: Config,
     ishes: HashMap<String, Ish>,
+    // Transitional compatibility state. Remove with `migrate_legacy_blocking` once
+    // persisted `blocking` fields are no longer supported.
+    legacy_blocking: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -28,6 +31,11 @@ pub enum StoreError {
     InvalidType(String),
     InvalidPriority(String),
     InvalidTag(String),
+    InvalidRelationship(String),
+    UnfinishedChildren {
+        id: String,
+        children: Vec<String>,
+    },
     ParentNotAllowed(String),
     InvalidParentType {
         child_type: String,
@@ -159,13 +167,18 @@ impl Store {
             root,
             config,
             ishes: HashMap::new(),
+            legacy_blocking: HashMap::new(),
         })
     }
 
     pub fn load(&mut self) -> Result<(), StoreError> {
         self.ishes.clear();
+        self.legacy_blocking.clear();
         let root = self.root.clone();
-        self.load_dir(&root)
+        self.load_dir(&root)?;
+        self.normalize_legacy_blocking();
+        self.rebuild_blocking_views();
+        Ok(())
     }
 
     pub fn load_one(&self, id: &str) -> Result<Ish, StoreError> {
@@ -209,6 +222,7 @@ impl Store {
         let slug = slugify(&input.title);
         let path = build_filename(&id, &slug);
         let now = Utc::now();
+        let requested_blocking = normalize_ids(self, input.blocking);
         let mut ish = Ish {
             id: id.clone(),
             slug,
@@ -223,7 +237,7 @@ impl Store {
             order: None,
             body: input.body,
             parent: input.parent.map(|parent| self.normalize_id(&parent)),
-            blocking: normalize_ids(self, input.blocking),
+            blocking: Vec::new(),
             blocked_by: normalize_ids(self, input.blocked_by),
         };
 
@@ -236,9 +250,38 @@ impl Store {
             self.validate_parent(&ish, parent_id)?;
         }
 
-        self.save_to_disk(&ish)?;
-        self.ishes.insert(id, ish.clone());
-        Ok(ish)
+        let original = self.ishes.clone();
+        self.ishes.insert(id.clone(), ish);
+        for target_id in &requested_blocking {
+            let Some(target) = self.ishes.get_mut(target_id) else {
+                self.ishes = original.clone();
+                return Err(StoreError::NotFound(target_id.clone()));
+            };
+            if !target.blocked_by.contains(&id) {
+                target.blocked_by.push(id.clone());
+            }
+        }
+        if let Err(error) = self.validate_dependency_graph() {
+            self.ishes = original;
+            return Err(error);
+        }
+        self.rebuild_blocking_views();
+
+        for changed_id in requested_blocking.iter().chain(std::iter::once(&id)) {
+            if let Err(error) = self.save_to_disk(
+                self.ishes
+                    .get(changed_id)
+                    .expect("changed ish should exist"),
+            ) {
+                self.ishes = original;
+                return Err(error);
+            }
+        }
+        Ok(self
+            .ishes
+            .get(&id)
+            .expect("created ish should exist")
+            .clone())
     }
 
     pub fn update(&mut self, id: &str, changes: UpdateIsh) -> Result<Ish, StoreError> {
@@ -259,6 +302,8 @@ impl Store {
             }
         }
 
+        let add_blocking = changes.add_blocking.clone();
+        let remove_blocking = changes.remove_blocking.clone();
         let mut updated = current.clone();
 
         if let Some(status) = changes.status {
@@ -312,12 +357,6 @@ impl Store {
 
         update_relation_list(
             self,
-            &mut updated.blocking,
-            changes.add_blocking,
-            changes.remove_blocking,
-        );
-        update_relation_list(
-            self,
             &mut updated.blocked_by,
             changes.add_blocked_by,
             changes.remove_blocked_by,
@@ -327,17 +366,87 @@ impl Store {
             self.validate_parent(&updated, &parent_id)?;
         }
 
+        if !self.config.is_archive_status(&current.status)
+            && self.config.is_archive_status(&updated.status)
+        {
+            let mut unfinished = self
+                .ishes
+                .values()
+                .filter(|candidate| {
+                    candidate.parent.as_deref() == Some(normalized_id.as_str())
+                        && !candidate.is_archived()
+                        && !self.config.is_archive_status(&candidate.status)
+                })
+                .map(|candidate| candidate.id.clone())
+                .collect::<Vec<_>>();
+            unfinished.sort();
+            if !unfinished.is_empty() {
+                return Err(StoreError::UnfinishedChildren {
+                    id: normalized_id,
+                    children: unfinished,
+                });
+            }
+        }
+
         updated.updated_at = Utc::now();
 
         let original_path = self.root.join(&current.path);
         let updated_path = self.root.join(&updated.path);
-        if current.path != updated.path && original_path.exists() {
+        let path_changed = current.path != updated.path;
+        let original = self.ishes.clone();
+        let original_legacy_blocking = self.legacy_blocking.clone();
+        let add_blocking = normalize_ids(self, add_blocking);
+        let remove_blocking = normalize_ids(self, remove_blocking);
+        self.ishes.insert(normalized_id.clone(), updated);
+        for target_id in &add_blocking {
+            let Some(target) = self.ishes.get_mut(target_id) else {
+                self.ishes = original.clone();
+                self.legacy_blocking = original_legacy_blocking.clone();
+                return Err(StoreError::NotFound(target_id.clone()));
+            };
+            if !target.blocked_by.contains(&normalized_id) {
+                target.blocked_by.push(normalized_id.clone());
+            }
+        }
+        for target_id in &remove_blocking {
+            if let Some(targets) = self.legacy_blocking.get_mut(&normalized_id) {
+                targets.retain(|legacy_target| legacy_target != target_id);
+            }
+            if let Some(target) = self.ishes.get_mut(target_id) {
+                target
+                    .blocked_by
+                    .retain(|blocker| blocker != &normalized_id);
+            }
+        }
+        if let Err(error) = self.validate_dependency_graph() {
+            self.ishes = original;
+            self.legacy_blocking = original_legacy_blocking;
+            return Err(error);
+        }
+        self.rebuild_blocking_views();
+
+        if path_changed && original_path.exists() {
             fs::rename(&original_path, &updated_path).map_err(StoreError::Io)?;
         }
 
-        self.save_to_disk(&updated)?;
-        self.ishes.insert(normalized_id, updated.clone());
-        Ok(updated)
+        for changed_id in add_blocking
+            .iter()
+            .chain(&remove_blocking)
+            .chain(std::iter::once(&normalized_id))
+        {
+            let Some(candidate) = self.ishes.get(changed_id) else {
+                continue;
+            };
+            if let Err(error) = self.save_to_disk(candidate) {
+                self.ishes = original;
+                return Err(error);
+            }
+        }
+        Ok(self
+            .ishes
+            .get(&normalized_id)
+            .expect("updated ish should exist")
+            .clone())
     }
 
     pub fn delete(&mut self, id: &str) -> Result<Ish, StoreError> {
@@ -349,6 +458,10 @@ impl Store {
 
         let path = self.root.join(&removed.path);
         fs::remove_file(&path).map_err(StoreError::Io)?;
+        self.legacy_blocking.remove(&normalized_id);
+        for targets in self.legacy_blocking.values_mut() {
+            targets.retain(|target| target != &normalized_id);
+        }
 
         let mut dirty_ids = Vec::new();
         for (other_id, other) in &mut self.ishes {
@@ -368,6 +481,7 @@ impl Store {
             }
         }
 
+        self.rebuild_blocking_views();
         for dirty_id in dirty_ids {
             let ish = self
                 .ishes
@@ -385,7 +499,16 @@ impl Store {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(StoreError::Io)?;
         }
-        fs::write(path, ish.render()).map_err(StoreError::Io)
+
+        // `blocking` is a derived view. Preserve only legacy persisted values until
+        // `ish check --fix` migrates them to canonical `blocked_by` entries.
+        let mut persisted = ish.clone();
+        persisted.blocking = self
+            .legacy_blocking
+            .get(&ish.id)
+            .cloned()
+            .unwrap_or_default();
+        fs::write(path, persisted.render()).map_err(StoreError::Io)
     }
 
     pub fn normalize_id(&self, id: &str) -> String {
@@ -645,6 +768,23 @@ impl Store {
             }
         }
 
+        // Dependency edges are canonicalized as `blocked -> blocker`. A blocker
+        // beneath the blocked ish in the parent tree creates a readiness deadlock.
+        for ish in self.ishes.values() {
+            for blocker in self.dependency_blockers(&ish.id) {
+                if self.is_ancestor(&ish.id, &blocker) {
+                    let path = vec![ish.id.clone(), blocker, ish.id.clone()];
+                    let key = cycle_key(LinkType::BlockedBy, &path);
+                    if seen_cycles.insert(key) {
+                        result.cycles.push(LinkCycle {
+                            link_type: LinkType::BlockedBy,
+                            path,
+                        });
+                    }
+                }
+            }
+        }
+
         result.broken_links.sort_by(link_ref_cmp);
         result.self_links.sort_by(link_ref_cmp);
         result.cycles.sort_by(|left, right| {
@@ -711,7 +851,22 @@ impl Store {
     pub fn fix_broken_links(&mut self) -> Result<usize, StoreError> {
         let existing_ids = self.ishes.keys().cloned().collect::<HashSet<_>>();
         let mut dirty_ids = Vec::new();
-        let mut fixed_count = 0;
+        let mut fixed_count = self.legacy_blocking.values().map(Vec::len).sum::<usize>();
+        if !self.legacy_blocking.is_empty() {
+            let legacy = std::mem::take(&mut self.legacy_blocking);
+            for (source, targets) in legacy {
+                for target_id in targets {
+                    if let Some(target) = self.ishes.get_mut(&target_id)
+                        && source != target_id
+                        && !target.blocked_by.contains(&source)
+                    {
+                        target.blocked_by.push(source.clone());
+                    }
+                }
+            }
+            dirty_ids.extend(self.ishes.keys().cloned());
+            self.rebuild_blocking_views();
+        }
 
         for (id, ish) in &mut self.ishes {
             let mut dirty = false;
@@ -722,15 +877,6 @@ impl Store {
                 ish.parent = None;
                 dirty = true;
                 fixed_count += 1;
-            }
-
-            let blocking_before = ish.blocking.len();
-            ish.blocking
-                .retain(|target| target != id && existing_ids.contains(target));
-            let removed_blocking = blocking_before - ish.blocking.len();
-            if removed_blocking > 0 {
-                dirty = true;
-                fixed_count += removed_blocking;
             }
 
             let blocked_by_before = ish.blocked_by.len();
@@ -744,10 +890,13 @@ impl Store {
 
             if dirty {
                 ish.updated_at = Utc::now();
-                dirty_ids.push(id.clone());
+                if !dirty_ids.contains(id) {
+                    dirty_ids.push(id.clone());
+                }
             }
         }
 
+        self.rebuild_blocking_views();
         for dirty_id in dirty_ids {
             let ish = self
                 .ishes
@@ -974,6 +1123,86 @@ impl Store {
         }
     }
 
+    fn dependency_blockers(&self, id: &str) -> Vec<String> {
+        let mut blockers = self
+            .ishes
+            .get(id)
+            .map(|ish| ish.blocked_by.clone())
+            .unwrap_or_default();
+        blockers.extend(
+            self.legacy_blocking
+                .iter()
+                .filter(|(_, targets)| targets.iter().any(|target| target == id))
+                .map(|(source, _)| source.clone()),
+        );
+        blockers.sort();
+        blockers.dedup();
+        blockers
+    }
+
+    fn validate_dependency_graph(&self) -> Result<(), StoreError> {
+        for ish in self.ishes.values() {
+            for blocker in self.dependency_blockers(&ish.id) {
+                if blocker == ish.id {
+                    return Err(StoreError::InvalidRelationship(format!(
+                        "{} cannot block itself",
+                        ish.id
+                    )));
+                }
+                if !self.ishes.contains_key(&blocker) {
+                    return Err(StoreError::NotFound(blocker.clone()));
+                }
+                if self.is_ancestor(&ish.id, &blocker) {
+                    return Err(StoreError::InvalidRelationship(format!(
+                        "descendant {blocker} cannot block ancestor {}; parent completion already depends on child completion",
+                        ish.id
+                    )));
+                }
+            }
+        }
+
+        fn visit(
+            id: &str,
+            store: &Store,
+            visiting: &mut HashSet<String>,
+            visited: &mut HashSet<String>,
+        ) -> Option<String> {
+            if visiting.contains(id) {
+                return Some(id.to_string());
+            }
+            if !visited.insert(id.to_string()) {
+                return None;
+            }
+            visiting.insert(id.to_string());
+            for blocker in store.dependency_blockers(id) {
+                if let Some(cycle_at) = visit(&blocker, store, visiting, visited) {
+                    return Some(cycle_at);
+                }
+            }
+            visiting.remove(id);
+            None
+        }
+
+        let mut visited = HashSet::new();
+        for id in self.ishes.keys() {
+            if let Some(cycle_at) = visit(id, self, &mut HashSet::new(), &mut visited) {
+                return Err(StoreError::InvalidRelationship(format!(
+                    "dependency cycle involving {cycle_at}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn is_ancestor(&self, ancestor_id: &str, descendant_id: &str) -> bool {
+        let mut found = false;
+        self.walk_parent_chain(descendant_id, |ancestor| {
+            found = ancestor.id == ancestor_id;
+            !found
+        });
+        found
+    }
+
     fn find_cycle_path(
         &self,
         from_id: &str,
@@ -1053,6 +1282,54 @@ impl Store {
             .get(id)
             .is_some_and(|ish| !ish.is_archived() && !self.config.is_archive_status(&ish.status))
     }
+
+    fn normalize_legacy_blocking(&mut self) {
+        let legacy = self
+            .ishes
+            .values_mut()
+            .filter_map(|ish| {
+                if ish.blocking.is_empty() {
+                    None
+                } else {
+                    Some((ish.id.clone(), std::mem::take(&mut ish.blocking)))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for (source_id, targets) in legacy {
+            self.legacy_blocking.insert(source_id, targets);
+        }
+    }
+
+    fn rebuild_blocking_views(&mut self) {
+        for ish in self.ishes.values_mut() {
+            ish.blocking.clear();
+        }
+        let edges = self
+            .ishes
+            .values()
+            .flat_map(|blocked| {
+                blocked
+                    .blocked_by
+                    .iter()
+                    .map(move |blocker| (blocker.clone(), blocked.id.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (blocker, blocked) in edges {
+            if let Some(ish) = self.ishes.get_mut(&blocker) {
+                ish.blocking.push(blocked);
+            }
+        }
+        for (source, targets) in &self.legacy_blocking {
+            if let Some(ish) = self.ishes.get_mut(source) {
+                ish.blocking.extend(targets.iter().cloned());
+            }
+        }
+        for ish in self.ishes.values_mut() {
+            ish.blocking.sort();
+            ish.blocking.dedup();
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -1067,6 +1344,14 @@ impl fmt::Display for StoreError {
             StoreError::InvalidType(ish_type) => write!(f, "invalid type: {ish_type}"),
             StoreError::InvalidPriority(priority) => write!(f, "invalid priority: {priority}"),
             StoreError::InvalidTag(tag) => write!(f, "invalid tag: {tag}"),
+            StoreError::InvalidRelationship(message) => {
+                write!(f, "invalid relationship: {message}")
+            }
+            StoreError::UnfinishedChildren { id, children } => write!(
+                f,
+                "cannot complete {id}; unfinished children: {}",
+                children.join(", ")
+            ),
             StoreError::ParentNotAllowed(ish_type) => {
                 write!(f, "type `{ish_type}` cannot have a parent")
             }
@@ -1104,6 +1389,8 @@ impl std::error::Error for StoreError {
             | StoreError::InvalidType(_)
             | StoreError::InvalidPriority(_)
             | StoreError::InvalidTag(_)
+            | StoreError::InvalidRelationship(_)
+            | StoreError::UnfinishedChildren { .. }
             | StoreError::ParentNotAllowed(_)
             | StoreError::InvalidParentType { .. }
             | StoreError::NotFound(_)
