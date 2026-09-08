@@ -1203,6 +1203,38 @@ fn update_rejects_completing_parent_with_unfinished_child() {
 }
 
 #[test]
+fn update_allows_editing_completed_parent_with_unfinished_child() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: completed\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let updated = store
+        .update(
+            "parent",
+            UpdateIsh {
+                title: Some("Renamed parent".to_string()),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect("unrelated update should succeed");
+
+    assert_eq!(updated.title, "Renamed parent");
+    assert_eq!(updated.status, "completed");
+}
+
+#[test]
 fn parent_chain_cycle_does_not_loop_when_finding_inherited_state() {
     let temp = TestDir::new();
     let root = temp.path().join(".ish");

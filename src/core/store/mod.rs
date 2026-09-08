@@ -366,7 +366,9 @@ impl Store {
             self.validate_parent(&updated, &parent_id)?;
         }
 
-        if self.config.is_archive_status(&updated.status) {
+        if !self.config.is_archive_status(&current.status)
+            && self.config.is_archive_status(&updated.status)
+        {
             let mut unfinished = self
                 .ishes
                 .values()
