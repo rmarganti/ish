@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const ARCHIVE_DIR_NAME: &str = "archive";
+const COMPLETED_STATUS: &str = "completed";
 
 #[derive(Debug)]
 pub struct Store {
@@ -250,6 +251,7 @@ impl Store {
             self.validate_parent(&ish, parent_id)?;
         }
 
+        let before = self.dependency_snapshot();
         let original = self.ishes.clone();
         self.ishes.insert(id.clone(), ish);
         for target_id in &requested_blocking {
@@ -261,7 +263,7 @@ impl Store {
                 target.blocked_by.push(id.clone());
             }
         }
-        if let Err(error) = self.validate_dependency_graph() {
+        if let Err(error) = self.validate_dependency_changes(&before) {
             self.ishes = original;
             return Err(error);
         }
@@ -366,9 +368,8 @@ impl Store {
             self.validate_parent(&updated, &parent_id)?;
         }
 
-        if !self.config.is_archive_status(&current.status)
-            && self.config.is_archive_status(&updated.status)
-        {
+        // Scrapping is allowed regardless of children; only completion depends on them.
+        if current.status != COMPLETED_STATUS && updated.status == COMPLETED_STATUS {
             let mut unfinished = self
                 .ishes
                 .values()
@@ -393,6 +394,7 @@ impl Store {
         let original_path = self.root.join(&current.path);
         let updated_path = self.root.join(&updated.path);
         let path_changed = current.path != updated.path;
+        let before = self.dependency_snapshot();
         let original = self.ishes.clone();
         let original_legacy_blocking = self.legacy_blocking.clone();
         let add_blocking = normalize_ids(self, add_blocking);
@@ -418,7 +420,7 @@ impl Store {
                     .retain(|blocker| blocker != &normalized_id);
             }
         }
-        if let Err(error) = self.validate_dependency_graph() {
+        if let Err(error) = self.validate_dependency_changes(&before) {
             self.ishes = original;
             self.legacy_blocking = original_legacy_blocking;
             return Err(error);
@@ -868,6 +870,31 @@ impl Store {
             self.rebuild_blocking_views();
         }
 
+        // Writes reject descendants blocking ancestors, but edges persisted before
+        // that check existed still deadlock readiness, so drop them here.
+        let ancestor_blockers = self
+            .ishes
+            .values()
+            .flat_map(|ish| {
+                ish.blocked_by
+                    .iter()
+                    .filter(|blocker| self.is_ancestor(&ish.id, blocker))
+                    .map(|blocker| (ish.id.clone(), blocker.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (id, blocker) in ancestor_blockers {
+            let ish = self
+                .ishes
+                .get_mut(&id)
+                .expect("ancestor blocker source should exist");
+            ish.blocked_by.retain(|candidate| candidate != &blocker);
+            ish.updated_at = Utc::now();
+            fixed_count += 1;
+            if !dirty_ids.contains(&id) {
+                dirty_ids.push(id);
+            }
+        }
+
         for (id, ish) in &mut self.ishes {
             let mut dirty = false;
 
@@ -1140,58 +1167,79 @@ impl Store {
         blockers
     }
 
-    fn validate_dependency_graph(&self) -> Result<(), StoreError> {
-        for ish in self.ishes.values() {
-            for blocker in self.dependency_blockers(&ish.id) {
-                if blocker == ish.id {
-                    return Err(StoreError::InvalidRelationship(format!(
-                        "{} cannot block itself",
-                        ish.id
-                    )));
-                }
-                if !self.ishes.contains_key(&blocker) {
-                    return Err(StoreError::NotFound(blocker.clone()));
-                }
-                if self.is_ancestor(&ish.id, &blocker) {
-                    return Err(StoreError::InvalidRelationship(format!(
-                        "descendant {blocker} cannot block ancestor {}; parent completion already depends on child completion",
-                        ish.id
-                    )));
-                }
-            }
-        }
-
-        fn visit(
-            id: &str,
-            store: &Store,
-            visiting: &mut HashSet<String>,
-            visited: &mut HashSet<String>,
-        ) -> Option<String> {
-            if visiting.contains(id) {
-                return Some(id.to_string());
-            }
-            if !visited.insert(id.to_string()) {
-                return None;
-            }
-            visiting.insert(id.to_string());
-            for blocker in store.dependency_blockers(id) {
-                if let Some(cycle_at) = visit(&blocker, store, visiting, visited) {
-                    return Some(cycle_at);
-                }
-            }
-            visiting.remove(id);
-            None
-        }
-
-        let mut visited = HashSet::new();
+    fn dependency_snapshot(&self) -> DependencySnapshot {
+        let mut snapshot = DependencySnapshot::default();
         for id in self.ishes.keys() {
-            if let Some(cycle_at) = visit(id, self, &mut HashSet::new(), &mut visited) {
+            for blocker in self.dependency_blockers(id) {
+                let violation = if &blocker == id {
+                    Some(DependencyViolation::SelfBlock)
+                } else if !self.ishes.contains_key(&blocker) {
+                    Some(DependencyViolation::MissingBlocker)
+                } else if self.is_ancestor(id, &blocker) {
+                    Some(DependencyViolation::DescendantBlocksAncestor)
+                } else {
+                    None
+                };
+                if let Some(violation) = violation {
+                    snapshot
+                        .violations
+                        .insert((violation, id.clone(), blocker.clone()));
+                }
+                snapshot.edges.insert((id.clone(), blocker));
+            }
+        }
+        snapshot
+    }
+
+    // Only violations introduced by the pending write are rejected. Bad links
+    // already on disk must not block unrelated writes; `ish check --fix` repairs them.
+    fn validate_dependency_changes(&self, before: &DependencySnapshot) -> Result<(), StoreError> {
+        let after = self.dependency_snapshot();
+
+        let mut new_violations = after
+            .violations
+            .difference(&before.violations)
+            .collect::<Vec<_>>();
+        new_violations.sort();
+        if let Some((violation, id, blocker)) = new_violations.first() {
+            return Err(match violation {
+                DependencyViolation::SelfBlock => {
+                    StoreError::InvalidRelationship(format!("{id} cannot block itself"))
+                }
+                DependencyViolation::MissingBlocker => StoreError::NotFound(blocker.clone()),
+                DependencyViolation::DescendantBlocksAncestor => {
+                    StoreError::InvalidRelationship(format!(
+                        "descendant {blocker} cannot block ancestor {id}; parent completion already depends on child completion"
+                    ))
+                }
+            });
+        }
+
+        // Any cycle not present before must pass through a newly added edge.
+        let mut new_edges = after.edges.difference(&before.edges).collect::<Vec<_>>();
+        new_edges.sort();
+        for (blocked, blocker) in new_edges {
+            if self.depends_on(blocker, blocked) {
                 return Err(StoreError::InvalidRelationship(format!(
-                    "dependency cycle involving {cycle_at}"
+                    "dependency cycle involving {blocked}"
                 )));
             }
         }
         Ok(())
+    }
+
+    fn depends_on(&self, from_id: &str, to_id: &str) -> bool {
+        let mut pending = vec![from_id.to_string()];
+        let mut visited = HashSet::new();
+        while let Some(id) = pending.pop() {
+            if id == to_id {
+                return true;
+            }
+            if visited.insert(id.clone()) {
+                pending.extend(self.dependency_blockers(&id));
+            }
+        }
+        false
     }
 
     fn is_ancestor(&self, ancestor_id: &str, descendant_id: &str) -> bool {
@@ -1330,6 +1378,20 @@ impl Store {
             ish.blocking.dedup();
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum DependencyViolation {
+    SelfBlock,
+    MissingBlocker,
+    DescendantBlocksAncestor,
+}
+
+/// Dependency edges (`blocked -> blocker`) and their violations at one point in time.
+#[derive(Debug, Default)]
+struct DependencySnapshot {
+    edges: HashSet<(String, String)>,
+    violations: HashSet<(DependencyViolation, String, String)>,
 }
 
 impl fmt::Display for StoreError {
