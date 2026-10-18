@@ -393,6 +393,24 @@ fn create_writes_new_ish_to_disk_and_store() {
         Some("normal"),
         "Parent body.",
     );
+    write_ish(
+        &root.join("ish-dep1--dep1.md"),
+        "ish-dep1",
+        "Dep 1",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
+    write_ish(
+        &root.join("ish-dep2--dep2.md"),
+        "ish-dep2",
+        "Dep 2",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
     let mut store = Store::new(&root, Config::default()).expect("store should initialize");
     store.load().expect("store should load files");
 
@@ -455,6 +473,24 @@ fn update_applies_field_changes_and_renames_file() {
         "task",
         Some("normal"),
         "alpha target omega",
+    );
+    write_ish(
+        &root.join("ish-child--child.md"),
+        "ish-child",
+        "Child",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
+    write_ish(
+        &root.join("ish-dep--dep.md"),
+        "ish-dep",
+        "Dependency",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
     );
 
     let mut store = Store::new(&root, Config::default()).expect("store should initialize");
@@ -875,13 +911,16 @@ fn fix_broken_links_removes_invalid_references_and_saves_files() {
     let ish = store.get("ish-bad").expect("bad ish should exist");
     let contents =
         fs::read_to_string(root.join("ish-bad--bad.md")).expect("bad file should still exist");
+    let valid_contents = fs::read_to_string(root.join("ish-valid--valid.md"))
+        .expect("valid file should still exist");
 
-    assert_eq!(fixed, 5);
+    assert_eq!(fixed, 6);
     assert!(ish.parent.is_none());
     assert_eq!(ish.blocking, vec!["ish-valid"]);
     assert!(ish.blocked_by.is_empty());
     assert!(!contents.contains("parent: ish-bad"));
-    assert!(contents.contains("- ish-valid"));
+    assert!(!contents.contains("- ish-valid"));
+    assert!(valid_contents.contains("blocked_by:\n- ish-bad"));
     assert!(!contents.contains("- ish-missing"));
     assert!(!contents.contains("- ish-bad"));
     assert!(!contents.contains("- ish-missing-two"));
@@ -1005,6 +1044,12 @@ fn find_archive_warnings_reports_mixed_active_and_archived_relationships() {
             },
             ArchiveWarning {
                 kind: ArchiveWarningKind::ActiveIshReferencesArchivedIsh,
+                source_id: "ish-active-blocker".to_string(),
+                link_type: LinkType::Blocking,
+                target_id: "ish-archived-worker".to_string(),
+            },
+            ArchiveWarning {
+                kind: ArchiveWarningKind::ActiveIshReferencesArchivedIsh,
                 source_id: "ish-active-child".to_string(),
                 link_type: LinkType::Blocking,
                 target_id: "ish-archived-parent".to_string(),
@@ -1086,6 +1131,315 @@ fn implicit_status_returns_first_terminal_ancestor() {
         store.implicit_status("child"),
         Some(("completed".to_string(), "ish-grandparent".to_string()))
     );
+}
+
+#[test]
+fn update_rejects_descendant_blocking_its_ancestor() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let error = store
+        .update(
+            "child",
+            UpdateIsh {
+                add_blocking: vec!["parent".to_string()],
+                ..UpdateIsh::default()
+            },
+        )
+        .expect_err("descendant must not block ancestor");
+
+    assert!(matches!(error, StoreError::InvalidRelationship(_)));
+    assert!(
+        store
+            .get("parent")
+            .expect("parent should exist")
+            .blocked_by
+            .is_empty()
+    );
+}
+
+#[test]
+fn update_rejects_completing_parent_with_unfinished_child() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let error = store
+        .update(
+            "parent",
+            UpdateIsh {
+                status: Some("completed".to_string()),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect_err("unfinished child must prevent completion");
+
+    assert!(matches!(error, StoreError::UnfinishedChildren { .. }));
+}
+
+#[test]
+fn update_allows_editing_completed_parent_with_unfinished_child() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: completed\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let updated = store
+        .update(
+            "parent",
+            UpdateIsh {
+                title: Some("Renamed parent".to_string()),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect("unrelated update should succeed");
+
+    assert_eq!(updated.title, "Renamed parent");
+    assert_eq!(updated.status, "completed");
+}
+
+fn write_deadlocked_hierarchy(root: &Path) {
+    fs::create_dir_all(root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n- ish-child\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    write_ish(
+        &root.join("ish-other--other.md"),
+        "ish-other",
+        "Other",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
+}
+
+#[test]
+fn writes_tolerate_preexisting_descendant_blocker() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    write_deadlocked_hierarchy(&root);
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    store
+        .update(
+            "other",
+            UpdateIsh {
+                status: Some("in-progress".to_string()),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect("unrelated update should succeed");
+    store
+        .create(CreateIsh {
+            title: "New".to_string(),
+            ..CreateIsh::default()
+        })
+        .expect("unrelated create should succeed");
+}
+
+#[test]
+fn writes_tolerate_preexisting_broken_blocker() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-a--a.md"),
+        "---\n# ish-a\ntitle: A\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n- ish-gone\n---\n",
+    )
+    .expect("a should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    store
+        .create(CreateIsh {
+            title: "New".to_string(),
+            ..CreateIsh::default()
+        })
+        .expect("unrelated create should succeed");
+}
+
+#[test]
+fn update_rejects_reparenting_under_own_blocked_ancestor() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-feature--feature.md"),
+        "---\n# ish-feature\ntitle: Feature\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n- ish-task\n---\n",
+    )
+    .expect("feature should be written");
+    write_ish(
+        &root.join("ish-task--task.md"),
+        "ish-task",
+        "Task",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let error = store
+        .update(
+            "task",
+            UpdateIsh {
+                parent: Some(Some("feature".to_string())),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect_err("reparenting must not create a descendant blocker");
+
+    assert!(matches!(error, StoreError::InvalidRelationship(_)));
+    assert!(
+        store
+            .get("task")
+            .expect("task should exist")
+            .parent
+            .is_none()
+    );
+}
+
+#[test]
+fn update_rejects_new_dependency_cycle() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-a--a.md"),
+        "---\n# ish-a\ntitle: A\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nblocked_by:\n- ish-b\n---\n",
+    )
+    .expect("a should be written");
+    write_ish(
+        &root.join("ish-b--b.md"),
+        "ish-b",
+        "B",
+        "todo",
+        "task",
+        Some("normal"),
+        "",
+    );
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let error = store
+        .update(
+            "b",
+            UpdateIsh {
+                add_blocked_by: vec!["a".to_string()],
+                ..UpdateIsh::default()
+            },
+        )
+        .expect_err("cycle must be rejected");
+
+    assert!(matches!(error, StoreError::InvalidRelationship(_)));
+    assert!(
+        store
+            .get("b")
+            .expect("b should exist")
+            .blocked_by
+            .is_empty()
+    );
+}
+
+#[test]
+fn fix_broken_links_removes_descendant_blockers() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    write_deadlocked_hierarchy(&root);
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let fixed = store.fix_broken_links().expect("fix should succeed");
+    let contents =
+        fs::read_to_string(root.join("ish-parent--parent.md")).expect("parent should exist");
+
+    assert_eq!(fixed, 1);
+    assert!(
+        store
+            .get("parent")
+            .expect("parent should exist")
+            .blocked_by
+            .is_empty()
+    );
+    assert!(!contents.contains("ish-child"));
+    assert!(store.check_all_links().cycles.is_empty());
+}
+
+#[test]
+fn update_allows_scrapping_parent_with_unfinished_child() {
+    let temp = TestDir::new();
+    let root = temp.path().join(".ish");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(
+        root.join("ish-parent--parent.md"),
+        "---\n# ish-parent\ntitle: Parent\nstatus: todo\ntype: feature\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n",
+    )
+    .expect("parent should be written");
+    fs::write(
+        root.join("ish-child--child.md"),
+        "---\n# ish-child\ntitle: Child\nstatus: todo\ntype: task\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\nparent: ish-parent\n---\n",
+    )
+    .expect("child should be written");
+    let mut store = Store::new(&root, Config::default()).expect("store should initialize");
+    store.load().expect("store should load");
+
+    let updated = store
+        .update(
+            "parent",
+            UpdateIsh {
+                status: Some("scrapped".to_string()),
+                ..UpdateIsh::default()
+            },
+        )
+        .expect("scrapping should succeed");
+
+    assert_eq!(updated.status, "scrapped");
 }
 
 #[test]

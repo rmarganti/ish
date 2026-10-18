@@ -59,6 +59,8 @@ pub fn store_app_error(error: StoreError) -> AppError {
         | StoreError::InvalidType(_)
         | StoreError::InvalidPriority(_)
         | StoreError::InvalidTag(_)
+        | StoreError::InvalidRelationship(_)
+        | StoreError::UnfinishedChildren { .. }
         | StoreError::ParentNotAllowed(_)
         | StoreError::InvalidParentType { .. }
         | StoreError::Body(_) => ErrorCode::Validation,
